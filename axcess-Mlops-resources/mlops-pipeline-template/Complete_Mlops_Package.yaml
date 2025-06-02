@@ -1,0 +1,205 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Deploy Service Catalog Portfolio, Product and Sagemaker custom project via nested stacks
+
+Parameters:
+
+  PortfolioName:
+    Type: String
+    Default: 'SageMaker_MLOps_portfolio'
+
+  SageMakerExecutionRoleArn:
+    Type: String
+    Description: ARN of the SageMaker Studio execution role
+
+  PrincipalArn:
+    Type: String
+    Default: ''
+    Description: ARN of the user/group/role for direct Service Catalog access
+
+  ProductName:
+    Type: String
+    Default: 'SageMaker_MLOps_product'
+
+  GithubUrl:
+    Type: String
+    Description: URL for Github repository
+
+  ZipUrlGithubRepo:
+    Type: String
+    Description: URL of zipped Github repository
+
+  RepoBranchName:
+    Type: String
+    Description: Name should like RepoName-BranchName
+
+  MainFolderName:
+    Type: String
+    Description: Main folder name from Github Repo
+
+  ServiceCatalogPortfolioTemplateURL:
+    Type: String
+    Default: 'https://<your-bucket>.s3.amazonaws.com/service-catalog-portfolio.yaml'
+    Description: S3 URL for the Service Catalog Portfolio nested stack template
+
+  ServiceCatalogProductTemplateURL:
+    Type: String
+    Default: 'https://<your-bucket>.s3.amazonaws.com/service-catalog-product.yaml'
+    Description: S3 URL for the Service Catalog Product nested stack template
+
+  SageMakerProjectName:
+    Type: String
+    Description: Provide name for sagemaker project
+
+  GitHubOwner:
+    Type: String
+    Default: mnpat
+
+  GitHubRepo:
+    Type: String
+    Default: axcess-test
+
+  GitHubBranch:
+    Type: String
+    Default: main
+
+  GithubConnArn:
+    Type: String
+    Default: arn:aws:codestar-connections:us-east-1:345594592951:connection/5cb49841-474a-408b-a38e-76eb4e2d228d
+
+  UseCase:
+    Type: String
+    Default: trip-prediction
+
+  S3Prefix:
+    Type: String
+    Default: NA
+
+  ProcessingInstanceType:
+    Type: String
+    Default: ml.t3.large
+
+  TrainingInstanceType:
+    Type: String
+    Default: ml.m5.large
+
+  ProcessingInstanceCount:
+    Type: String
+    Default: "1"
+
+  TrainingInstanceCount:
+    Type: String
+    Default: "1"
+
+  ModelPackageGroupName:
+    Type: String
+    Default: trip-prediction
+
+  ModelVersion:
+    Type: String
+    Default: "1"
+
+  DeployStackName:
+    Type: String
+    Default: trip-prediction-1-deploy-staging
+    
+
+  S3Bucket:
+    Type: String
+    Default: axcess-devst-sagemaker-bucket-1
+
+
+
+
+
+Resources:
+
+
+  PortfolioStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Ref ServiceCatalogPortfolioTemplateURL
+      Parameters:
+        PortfolioNameParameter: !Ref PortfolioName
+        PortfolioDescriptionParameter: 'Custom project templates for MLOps'
+        PortfolioOwnerParameter: 'owner'
+        MakePorfolioAccessibleFromSageMakerStudioParameter: 'true'
+        SageMakerStudioExecutionRoleParameter: !Ref SageMakerExecutionRoleArn
+        AllowDirectUserAccessParameter: 'true'
+        UserAccessPrincipalsParameter: !Ref PrincipalArn
+
+  ProductStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn: PortfolioStack
+    Properties:
+      TemplateURL: !Ref ServiceCatalogProductTemplateURL
+      Parameters:
+        PortfolioIDParameter: !GetAtt PortfolioStack.Outputs.CreatedPortfolioID
+        ProductNameParameter: !Ref ProductName
+        ProductDescriptionParameter: 'SAMPLE DESCRIPTION'
+        ProductOwnerParameter: 'Product Owner'
+        ProductDistributorParameter: 'Product Distributor'
+        ProductSupportDescriptionParameter: 'Support Description'
+        ProductSupportEmailParameter: 'support@example.com'
+        ProductSupportURLParameter: !Ref GithubUrl
+        SageMakerProjectRepoZipParameter: !Ref ZipUrlGithubRepo
+        SageMakerProjectRepoNameBranchParameter: !Ref RepoBranchName
+        SageMakerProjectsProjectNameParameter: !Ref MainFolderName
+
+
+
+  SageMakerProject:
+    Type: AWS::SageMaker::Project
+    DependsOn: ProductStack
+    Properties:
+      ProjectName: !Ref SageMakerProjectName
+      ServiceCatalogProvisioningDetails:
+        ProductId: !GetAtt ProductStack.Outputs.CreatedServiceCatalogProductId
+        ProvisioningParameters:
+          - Key: GitHubOwner
+            Value: !Ref GitHubOwner
+          - Key: GitHubRepo
+            Value: !Ref GitHubRepo
+          - Key: GitHubBranch
+            Value: !Ref GitHubBranch
+          - Key: GithubConnArn
+            Value: !Ref GithubConnArn
+          - Key: UseCase
+            Value: !Ref UseCase
+          - Key: s3Prefix
+            Value: !Ref S3Prefix
+          - Key: ProcessingInstanceType
+            Value: !Ref ProcessingInstanceType
+          - Key: TrainingInstanceType
+            Value: !Ref TrainingInstanceType
+          - Key: ProcessingInstanceCount
+            Value: !Ref ProcessingInstanceCount
+          - Key: TrainingInstanceCount
+            Value: !Ref TrainingInstanceCount
+          - Key: ModelPackageGroupnameInput
+            Value: !Ref ModelPackageGroupName
+          - Key: ModelVersionInput
+            Value: !Ref ModelVersion
+          - Key: StackName
+            Value: !Ref DeployStackName
+          - Key: mls3bucket
+            Value: !Ref S3Bucket
+
+
+
+Outputs:
+  
+  CreatedPortfolioID:
+    Value: !GetAtt PortfolioStack.Outputs.CreatedPortfolioID
+  CreatedPortfolioName:
+    Value: !GetAtt PortfolioStack.Outputs.CreatedPortfolioName
+  AssociatedServiceCatalogPortfolioID:
+    Value: !GetAtt ProductStack.Outputs.AssociatedServiceCatalogPortfolioID
+  CodeStagingBucketName:
+    Value: !GetAtt ProductStack.Outputs.CodeStagingBucketName
+  CreatedServiceCatalogProductId:
+    Value: !GetAtt ProductStack.Outputs.CreatedServiceCatalogProductId
+  CreatedServiceCatalogProductName:
+    Value: !GetAtt ProductStack.Outputs.CreatedServiceCatalogProductName
+  ServiceCatalogProductLaunchRoleARN:
+    Value: !GetAtt ProductStack.Outputs.ServiceCatalogProductLaunchRoleARN
+    

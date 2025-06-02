@@ -1,0 +1,718 @@
+Description: >-
+  Toolchain template which provides the resources needed to represent
+  infrastructure as code. This template specifically creates a CI/CD pipeline to
+  build a model using a SageMaker Pipeline and deploy the resulting trained ML
+  Model from Model Registry to two stages in CD -- staging and production -- 
+  for batch inference jobs
+Parameters:
+  SageMakerProjectName:
+    Type: String
+    Description: Name of the project
+    MinLength: 1
+    MaxLength: 32
+    AllowedPattern: '^[a-zA-Z](-*[a-zA-Z0-9])*'
+  SageMakerProjectId:
+    Type: String
+    Description: Service generated Id of the project.
+  MlOpsArtifactsBucketName:
+    Type: String
+    Description: Name of the S3 bucket to store ML Ops artifacts. If left blank, a new bucket will be created.
+    Default: "NA"
+  GitHubOwner:
+    Type: String
+    Description: 'GitHub repository owner'
+  GitHubRepo:
+    Type: String
+    Description: 'GitHub repository name'
+  GitHubBranch:
+    Type: String
+    Description: 'Branch of the GitHub repository'
+  GithubConnArn:
+    Type: String
+    Description: 'Connection ARN'
+  UseCase:
+    Type: String
+    Description: Use case description
+  s3Prefix:
+    Type: String
+    Description: S3 prefix for storing data
+  ProcessingInstanceType:
+    Type: String
+    Description: Instance type for data processing
+  TrainingInstanceType:
+    Type: String
+    Description: Instance type for training
+  ProcessingInstanceCount:
+    Type: String
+    Description: Number of processing instances
+  TrainingInstanceCount:
+    Type: String
+    Description: Number of training instances
+  ModelPackageGroupnameInput:
+    Type: String
+    Description: Model package group name input
+  ModelVersionInput:
+    Type: String
+    Description: Model version input
+  StackName:
+    Type: String
+    Description: Name of the CloudFormation stack
+  mls3bucket:
+    Type: String
+    Description: Name of ml s3 bucket
+
+
+ 
+
+Conditions:
+  CreateNewBucket: !Equals 
+    - !Ref MlOpsArtifactsBucketName
+    - "NA"
+
+Resources:
+  MlOpsArtifactsBucket:
+    Type: 'AWS::S3::Bucket'
+    Condition: CreateNewBucket
+    DeletionPolicy: Retain
+    Properties:
+      BucketName: 'axcess-devst-sagemaker-bucket-1' # Provide S3 bucket name based on your requirment
+
+  SageMakerModelPipelineBuildProject:
+    Type: 'AWS::CodeBuild::Project'
+    Properties:
+      Name: !Sub 'sagemaker-${SageMakerProjectName}-${SageMakerProjectId}-modelbuild'  # Provide name for ModelBuild codebuild project
+      Description: >-
+        Builds the model building workflow code repository, creates the
+        SageMaker Pipeline and executes it
+      ServiceRole: !Join
+        - ':'
+        - - arn
+          - !Ref 'AWS::Partition'
+          - 'iam:'
+          - !Ref 'AWS::AccountId'
+          - role/AmazonSageMakerServiceCatalogProductsUseRoleMultiModelTB
+      Artifacts:
+        Type: CODEPIPELINE
+      Environment:
+        Type: LINUX_CONTAINER
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: 'aws/codebuild/amazonlinux2-x86_64-standard:5.0'
+        EnvironmentVariables:
+          - Name: SAGEMAKER_PROJECT_NAME
+            Value: !Ref SageMakerProjectName
+          - Name: SAGEMAKER_PROJECT_ID
+            Value: !Ref SageMakerProjectId
+          - Name: ARTIFACT_BUCKET
+            Value: !Ref MlOpsArtifactsBucket
+          - Name: SAGEMAKER_PIPELINE_NAME
+            Value: !Sub 'test-sagemaker-${SageMakerProjectName}'
+          - Name: SAGEMAKER_PIPELINE_ROLE_ARN
+            Value: !Join
+              - ':'
+              - - arn
+                - !Ref 'AWS::Partition'
+                - 'iam:'
+                - !Ref 'AWS::AccountId'
+                - role/AmazonSageMakerServiceCatalogProductsUseRoleMultiModelTB
+          - Name: AWS_REGION
+            Value: !Ref 'AWS::Region'
+          - Name: SAGEMAKER_PROJECT_ARN
+            Value: !Join
+              - ':'
+              - - arn
+                - !Ref 'AWS::Partition'
+                - sagemaker
+                - !Ref 'AWS::Region'
+                - !Ref 'AWS::AccountId'
+                - !Sub 'project/${SageMakerProjectName}'
+      Source:
+        Type: CODEPIPELINE
+        BuildSpec: axcess-Mlops/modelbuild/codebuild-buildspec.yml
+      TimeoutInMinutes: 480
+
+  ModelDeployBuildProject:
+    Type: 'AWS::CodeBuild::Project'
+    Properties:
+      Name: !Sub 'sagemaker-${SageMakerProjectName}-${SageMakerProjectId}-modeldeploy' # Provide name for ModelDeploy codebuild project
+      Description: >-
+        Builds the Cfn template which defines the Endpoint with specified
+        configuration
+      ServiceRole: !Join
+        - ':'
+        - - arn
+          - !Ref 'AWS::Partition'
+          - 'iam:'
+          - !Ref 'AWS::AccountId'
+          - role/AmazonSageMakerServiceCatalogProductsUseRoleMultiModelTB
+      Artifacts:
+        Type: CODEPIPELINE
+      Environment:
+        Type: LINUX_CONTAINER
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: 'aws/codebuild/amazonlinux2-x86_64-standard:5.0'
+        EnvironmentVariables:
+          - Name: SAGEMAKER_PROJECT_NAME
+            Value: !Ref SageMakerProjectName
+          - Name: SAGEMAKER_PROJECT_ID
+            Value: !Ref SageMakerProjectId
+          - Name: ARTIFACT_BUCKET
+            Value: !Ref MlOpsArtifactsBucket
+          - Name: MODEL_EXECUTION_ROLE_ARN
+            Value: !Join
+              - ':'
+              - - arn
+                - !Ref 'AWS::Partition'
+                - 'iam:'
+                - !Ref 'AWS::AccountId'
+                - role/AmazonSageMakerServiceCatalogProductsUseRoleMultiModelTB
+          - Name: SOURCE_MODEL_PACKAGE_GROUP_NAMES
+            Value: !Join
+              - ','
+              - - !Sub 'test-${SageMakerProjectName}-${SageMakerProjectId}'
+          - Name: SAGEMAKER_PROJECT_ARN
+            Value: !Join
+              - ':'
+              - - arn
+                - !Ref 'AWS::Partition'
+                - sagemaker
+                - !Ref 'AWS::Region'
+                - !Ref 'AWS::AccountId'
+                - !Sub 'project/${SageMakerProjectName}'
+          - Name: AWS_REGION
+            Value: !Ref 'AWS::Region'
+          - Name: EXPORT_TEMPLATE_NAME
+            Value: template-export.yml
+          - Name: EXPORT_TEMPLATE_STAGING_CONFIG
+            Value: staging-config-export.json
+          - Name: EXPORT_TEMPLATE_PROD_CONFIG
+            Value: prod-config-export.json
+      Source:
+        Type: CODEPIPELINE
+        BuildSpec: axcess-Mlops/modeldeploy/buildspec.yml
+      TimeoutInMinutes: 30
+
+  ModelDeployTestProject:
+    Type: 'AWS::CodeBuild::Project'
+    Properties:
+      Name: !Sub 'sagemaker-${SageMakerProjectName}-${SageMakerProjectId}-testing' # Provide name for ModelDeployTest codebuild project
+      Description: Test the deployment endpoint
+      ServiceRole: !Join
+        - ':'
+        - - arn
+          - !Ref 'AWS::Partition'
+          - 'iam:'
+          - !Ref 'AWS::AccountId'
+          - role/AmazonSageMakerServiceCatalogProductsUseRoleMultiModelTB
+      Artifacts:
+        Type: CODEPIPELINE
+      Environment:
+        Type: LINUX_CONTAINER
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: 'aws/codebuild/amazonlinux2-x86_64-standard:5.0'
+        EnvironmentVariables:
+          - Name: SAGEMAKER_PROJECT_NAME
+            Value: !Ref SageMakerProjectName
+          - Name: SAGEMAKER_PROJECT_ID
+            Value: !Ref SageMakerProjectId
+          - Name: AWS_REGION
+            Value: !Ref 'AWS::Region'
+          - Name: BUILD_CONFIG
+            Value: staging-config-export.json
+          - Name: EXPORT_TEST_RESULTS
+            Value: test-results.json
+      Source:
+        Type: CODEPIPELINE
+        BuildSpec: axcess-Mlops/modeldeploy/test/buildspec.yml
+      TimeoutInMinutes: 30
+
+  SageMakerdatamonitordProject:
+    Type: 'AWS::CodeBuild::Project'
+    Properties:
+      Name: !Sub 'sagemaker-${SageMakerProjectName}-${SageMakerProjectId}-data-quality-monitor'
+      Description: "monitor's data"
+      ServiceRole: !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/AmazonSageMakerServiceCatalogProductsUseRoleMultiModelTB
+      Artifacts:
+        Type: CODEPIPELINE
+      Environment:
+        Type: LINUX_CONTAINER
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: 'aws/codebuild/amazonlinux2-x86_64-standard:5.0'
+        EnvironmentVariables:
+          - Name: AWS_REGION
+            Value: !Ref 'AWS::Region'
+          
+
+      Source:
+        Type: CODEPIPELINE
+        BuildSpec: axcess-Mlops/dataqualitymonitoring/buildspec.yml
+      TimeoutInMinutes: 480
+
+
+  SageMakerModelmonitordProject:
+    Type: 'AWS::CodeBuild::Project'
+    Properties:
+      Name: !Sub 'sagemaker-${SageMakerProjectName}-${SageMakerProjectId}-model-monitor'
+      Description: "monitor's model"
+      ServiceRole: !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/AmazonSageMakerServiceCatalogProductsUseRoleMultiModelTB
+      Artifacts:
+        Type: CODEPIPELINE
+      Environment:
+        Type: LINUX_CONTAINER
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: 'aws/codebuild/amazonlinux2-x86_64-standard:5.0'
+        EnvironmentVariables:
+          
+          - Name: AWS_REGION
+            Value: !Ref 'AWS::Region'
+          
+
+      Source:
+        Type: CODEPIPELINE
+        BuildSpec: axcess-Mlops/modelmonitoring/buildspec.yml
+      TimeoutInMinutes: 480
+
+
+  SageMakerModelretrainingProject:
+    Type: 'AWS::CodeBuild::Project'
+    Properties:
+      Name: 'sagemaker-model-retraining-project'
+      Description: "model retraining"
+      ServiceRole: !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/AmazonSageMakerServiceCatalogProductsUseRoleMultiModelTB
+      Artifacts:
+        Type: CODEPIPELINE
+      Environment:
+        Type: LINUX_CONTAINER
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: 'aws/codebuild/amazonlinux2-x86_64-standard:5.0'
+        EnvironmentVariables:
+          - Name: AWS_REGION
+            Value: !Ref 'AWS::Region'
+          
+
+      Source:
+        Type: CODEPIPELINE
+        BuildSpec: axcess-Mlops/modelretraining/buildspec.yml
+      TimeoutInMinutes: 480
+
+  LambdaExecutionRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      RoleName: !Sub 'LambdaExecutionRole-crossaccount'  # Provide Lambda Execution Role name based on your requirment which used to trigger Eventbridge rule for crossacount deployment.
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: LambdaExecutionPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: arn:aws:logs:*:*:*
+        - PolicyName: AmazonEventBridgeFullAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'events:*'
+                Resource: '*'
+        - PolicyName: SageMakerServiceCatalogProductsPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'sagemaker:*'
+                Resource: '*'
+        - PolicyName: CodePipelineFullAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'codepipeline:*'
+                Resource: '*'
+        - PolicyName: S3FullAccessPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 's3:*'
+                Resource: '*'
+
+  MyLambdaFunction:
+    Type: 'AWS::Lambda::Function'
+    Properties: 
+      FunctionName: !Sub '${SageMakerProjectName}-cross-account-deployment'  # Provide Lambda name based on your requirment which used to trigger Eventbridge rule for crossacount deployment.
+      Runtime: python3.9
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Handler: index.lambda_handler
+      Code:
+        ZipFile: |
+          import boto3
+          import json
+          import zipfile
+          
+          def lambda_handler(event, context):
+              clients = boto3.client("events")
+              s3 = boto3.client('s3')
+              code_pipeline = boto3.client('codepipeline')
+
+              print("Event: ", event)
+              
+              bucket_name = event['CodePipeline.job']['data']['inputArtifacts'][0]['location']['s3Location']['bucketName']
+              object_path_key = event['CodePipeline.job']['data']['inputArtifacts'][0]['location']['s3Location']['objectKey']
+              job_id = event['CodePipeline.job']['id']
+              revision = event['CodePipeline.job']['data']['inputArtifacts'][0]['revision']
+              s3_artifact_path = f's3://{bucket_name}/{object_path_key}'
+
+              path = {"bucket": bucket_name, "key": object_path_key}
+              s3_artifact_path = json.dumps(path)
+              
+              response = clients.put_events(
+                  Entries=[
+                      {
+                          'Source': 'sagemaker-lambda-events',
+                          'DetailType': 'sagemaker-myDetailType',
+                          'Detail': s3_artifact_path,
+                          'EventBusName': 'default'
+                      }
+                  ]
+              )
+              
+              print("response from eventbridge put_event: ", response)
+              
+              if response['ResponseMetadata']['HTTPStatusCode'] == 200:
+                  code_pipeline.put_job_success_result(jobId=job_id)
+              else:
+                  code_pipeline.put_job_failure_result(
+                      jobId=job_id,
+                      failureDetails={
+                          'type': 'JobFailed',
+                          'message': 'Lambda failed'
+                      }
+                  )
+
+              return response
+      MemorySize: 128
+      Timeout: 300
+      Environment:
+        Variables:
+          LOG_LEVEL: INFO
+
+  
+
+  ModelBuildPipeline:
+    Type: 'AWS::CodePipeline::Pipeline'
+    DependsOn: MlOpsArtifactsBucket
+    Properties:
+      Name: !Sub 'sagemaker-${SageMakerProjectName}-${SageMakerProjectId}-modelbuild'  # Provide name for ModelBuild codepipeline pipeline
+      RoleArn: !Join
+        - ':'
+        - - arn
+          - !Ref 'AWS::Partition'
+          - 'iam:'
+          - !Ref 'AWS::AccountId'
+          - role/AmazonSageMakerServiceCatalogProductsUseRoleMultiModelTB
+      PipelineType: V2
+      ExecutionMode: PARALLEL
+      ArtifactStore:
+        Type: S3
+        Location: !Ref MlOpsArtifactsBucket
+      Variables:
+        - Name: use_case
+          DefaultValue: !Ref UseCase
+        - Name: ml_s3_bucket
+          DefaultValue: !Ref mls3bucket
+        - Name: s3_prefix
+          DefaultValue: !Ref s3Prefix
+        - Name: processing_instance_type
+          DefaultValue: !Ref ProcessingInstanceType
+        - Name: training_instance_type
+          DefaultValue: !Ref TrainingInstanceType
+        - Name: processing_instance_count
+          DefaultValue: !Ref ProcessingInstanceCount
+        - Name: training_instance_count
+          DefaultValue: !Ref TrainingInstanceCount
+      Stages:
+        - Name: Source
+          Actions:
+            - Name: ModelBuildWorkflowCode
+              ActionTypeId:
+                Category: Source
+                Owner: AWS
+                Provider: CodeStarSourceConnection
+                Version: 1
+              Configuration:
+                ConnectionArn: !Sub '${GithubConnArn}'
+                FullRepositoryId: !Sub '${GitHubOwner}/${GitHubRepo}'
+                BranchName: !Sub '${GitHubBranch}'
+              OutputArtifacts:
+                - Name: ModelBuildSourceArtifact
+              Namespace: SourceVariables
+        - Name: Build
+          Actions:
+            - Name: BuildAndExecuteSageMakerPipeline
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Provider: CodeBuild
+                Version: 1
+              InputArtifacts:
+                - Name: ModelBuildSourceArtifact
+              OutputArtifacts:
+                - Name: ModelBuildBuildArtifact
+              Configuration:
+                ProjectName: !Ref SageMakerModelPipelineBuildProject
+                EnvironmentVariables: !Sub |
+                  [
+                    {"name": "use_case", "value": "${UseCase}"},
+                    {"name": "ml_s3_bucket", "value": "${mls3bucket}"},
+                    {"name": "s3_prefix", "value": "${s3Prefix}"},
+                    {"name": "processing_instance_type", "value": "${ProcessingInstanceType}"},
+                    {"name": "training_instance_type", "value": "${TrainingInstanceType}"},
+                    {"name": "processing_instance_count", "value": "${ProcessingInstanceCount}"},
+                    {"name": "training_instance_count", "value": "${TrainingInstanceCount}"}
+                  ]
+              RunOrder: 1
+
+  
+      
+  ModelDeployPipeline:
+    Type: 'AWS::CodePipeline::Pipeline'
+    DependsOn: MlOpsArtifactsBucket
+    Properties:
+      Name: !Sub 'sagemaker-${SageMakerProjectName}-${SageMakerProjectId}-modeldeploy'  # Provide name for ModelDeploy codepipeline pipeline
+      RoleArn: !Join
+        - ':'
+        - - arn
+          - !Ref 'AWS::Partition'
+          - 'iam:'
+          - !Ref 'AWS::AccountId'
+          - role/AmazonSageMakerServiceCatalogProductsUseRoleMultiModelTB
+      PipelineType: V2
+      ExecutionMode: PARALLEL
+      ArtifactStore:
+        Type: S3
+        Location: !Ref MlOpsArtifactsBucket
+      Variables:
+        - Name: use_case
+          DefaultValue: !Ref UseCase
+        - Name: ml_s3_bucket
+          DefaultValue: !Ref mls3bucket
+        - Name: s3_prefix
+          DefaultValue: !Ref s3Prefix
+        - Name: model_package_group_name_input
+          DefaultValue: !Ref ModelPackageGroupnameInput
+        - Name: model_version_input
+          DefaultValue: !Ref ModelVersionInput
+        - Name: StackName
+          DefaultValue: !Ref StackName
+      Stages:
+        - Name: Source
+          Actions:
+            - Name: ModelDeployInfraCode
+              ActionTypeId:
+                Category: Source
+                Owner: AWS
+                Provider: CodeStarSourceConnection
+                Version: 1
+              Configuration:
+                ConnectionArn: !Sub '${GithubConnArn}'
+                FullRepositoryId: !Sub '${GitHubOwner}/${GitHubRepo}'
+                BranchName: !Sub '${GitHubBranch}'
+              OutputArtifacts:
+                - Name: SourceArtifact
+              Namespace: SourceVariables
+        - Name: Build
+          Actions:
+            - Name: BuildDeploymentTemplates
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Provider: CodeBuild
+                Version: 1
+              InputArtifacts:
+                - Name: SourceArtifact
+              OutputArtifacts:
+                - Name: BuildArtifact
+              Configuration:
+                ProjectName: !Ref ModelDeployBuildProject
+                EnvironmentVariables: !Sub |
+                  [
+                    {"name": "use_case", "value": "${UseCase}"},
+                    {"name": "ml_s3_bucket", "value": "${mls3bucket}"},
+                    {"name": "s3_prefix", "value": "${s3Prefix}"},
+                    {"name": "model_package_group_name_input", "value": "${ModelPackageGroupnameInput}"},
+                    {"name": "model_version_input", "value": "${ModelVersionInput}"},
+                    {"name": "StackName", "value": "${StackName}"}
+                  ]
+              RunOrder: 1
+        - Name: DeployStaging
+          Actions:
+            - Name: DeployResourcesStaging
+              InputArtifacts:
+                - Name: BuildArtifact
+              ActionTypeId:
+                Category: Deploy
+                Owner: AWS
+                Version: 1
+                Provider: CloudFormation
+              Configuration:
+                ActionMode: REPLACE_ON_FAILURE
+                Capabilities: CAPABILITY_NAMED_IAM
+                RoleArn: !Join
+                  - ':'
+                  - - arn
+                    - !Ref 'AWS::Partition'
+                    - 'iam:'
+                    - !Ref 'AWS::AccountId'
+                    - >-
+                      role/AmazonSageMakerServiceCatalogProductsUseRoleMultiModelTB
+                StackName: !Ref StackName
+                TemplateConfiguration: 'BuildArtifact::staging-config-export.json'
+                TemplatePath: 'BuildArtifact::template-export.yml'
+              RunOrder: 1
+            - Name: TestStaging
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Provider: CodeBuild
+                Version: 1
+              InputArtifacts:
+                - Name: SourceArtifact
+                - Name: BuildArtifact
+              OutputArtifacts:
+                - Name: TestArtifact
+              Configuration:
+                ProjectName: !Ref ModelDeployTestProject
+                PrimarySource: SourceArtifact
+                EnvironmentVariables: !Sub |
+                  [
+                    {"name": "use_case", "value": "${UseCase}"},
+                    {"name": "ml_s3_bucket", "value": "${mls3bucket}"},
+                    {"name": "s3_prefix", "value": "${s3Prefix}"},
+                    {"name": "model_package_group_name_input", "value": "${ModelPackageGroupnameInput}"},
+                    {"name": "model_version_input", "value": "${ModelVersionInput}"},
+                    {"name": "StackName", "value": "${StackName}"}
+                  ]
+              RunOrder: 2
+            
+        - Name: ModelMonitor
+          Actions:
+            - Name: ModelMonitoringStage
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Provider: CodeBuild
+                Version: 1
+              InputArtifacts:
+                - Name: SourceArtifact
+              OutputArtifacts:
+                - Name: ModelMonitorArtifact
+              Configuration:
+                ProjectName: !Ref SageMakerModelmonitordProject
+              RunOrder: 1
+        
+        - Name: DataQualityMonitor
+          Actions:
+            - Name: DataQualityMonitoringStage
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Provider: CodeBuild
+                Version: 1
+              InputArtifacts:
+                - Name: SourceArtifact
+              OutputArtifacts:
+                - Name: DatamonitorArtifact
+              Configuration:
+                ProjectName: !Ref SageMakerdatamonitordProject
+              RunOrder: 1
+
+        - Name: ApproveDeployment
+          Actions:
+            - Name: ManualApproval
+              ActionTypeId:
+                Category: Approval
+                Owner: AWS
+                Version: 1
+                Provider: Manual
+              Configuration:
+                CustomData: Please approve deployment to Production
+              RunOrder: 1
+        - Name: DeployProd
+          Actions:
+            - Name: DeployResourcesProd
+              InputArtifacts:
+                - Name: BuildArtifact
+              ActionTypeId:
+                Category: Invoke
+                Owner: AWS
+                Version: 1
+                Provider: Lambda
+              Configuration:
+                FunctionName: !Ref MyLambdaFunction
+
+              RunOrder: 1
+  MyEventRule:
+    Type: 'AWS::Events::Rule'
+    Properties:
+      Name: !Sub "axcess-${SageMakerProjectName}-crossaccount-deploy-rule"   # Provide EventBridge rule name 
+      EventBusName: "default"  
+      EventPattern:
+        source:
+          - "sagemaker-lambda-events"
+      State: "ENABLED"  
+  
+  
+      
+
+Rules: {}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
