@@ -1,0 +1,17 @@
+version: 0.2
+
+phases:
+  install:
+    runtime-versions:
+      python: 3.10
+    commands:
+      - pip install boto3 sagemaker pandas fsspec s3fs
+
+  build:
+    commands:
+      - pwd
+      - echo "Starting SageMaker Model Monitor setup..."
+      - mv axcess-Mlops/dataqualitymonitoring/data_qality_monitor.py axcess-Mlops/
+      - |
+        python axcess-Mlops/data_qality_monitor.py
+

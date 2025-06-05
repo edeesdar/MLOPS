@@ -1,0 +1,28 @@
+version: 0.2
+
+phases:
+  install:
+    runtime-versions:
+      python: 3.11
+    commands:
+      - mv axcess-Mlops/modelbuild/setup.py ./axcess-Mlops
+      - pip install -U ./axcess-Mlops "sagemaker"
+  
+  build:
+    commands:
+    #   - echo Entered the pre_build phase...
+    #   - echo "Hello World" > /tmp/hello-world
+    #   - codebuild-breakpoint
+      - printenv
+      - export PYTHONUNBUFFERED=TRUE
+      - export SAGEMAKER_PROJECT_NAME_ID="${SAGEMAKER_PROJECT_NAME}-${SAGEMAKER_PROJECT_ID}"
+      - |
+        run-pipeline --module-name ${use_case}.mlops.pipeline \
+          --role-arn $SAGEMAKER_PIPELINE_ROLE_ARN \
+          --tags "[{\"Key\":\"sagemaker:project-name\", \"Value\":\"${SAGEMAKER_PROJECT_NAME}\"}, {\"Key\":\"sagemaker:project-id\", \"Value\":\"${SAGEMAKER_PROJECT_ID}\"}]" \
+          --kwargs "{\"region\":\"${AWS_REGION}\",\"sagemaker_project_arn\":\"${SAGEMAKER_PROJECT_ARN}\",\"role\":\"${SAGEMAKER_PIPELINE_ROLE_ARN}\",\"default_bucket\":\"${ARTIFACT_BUCKET}\",\"pipeline_name\": \"${use_case}\",\"model_package_group_name\": \"${use_case}\",\"base_job_prefix\": \"${use_case}\",\"use_case\":\"${use_case}\",\"ml_s3_bucket\":\"${ml_s3_bucket}\",\"s3_prefix\":\"${s3_prefix}\",\"processing_instance_type\":\"${processing_instance_type}\",\"training_instance_type\":\"${training_instance_type}\",\"processing_instance_count_param\":\"${processing_instance_count}\",\"training_instance_count_param\":\"${training_instance_count}\"}"
+          
+    #   - echo Entered the pre_build phase...
+    #   - echo "Hello World" > /tmp/hello-world
+    #   - codebuild-breakpoint
+      - echo "Create/Update of the SageMaker Pipeline and execution completed."

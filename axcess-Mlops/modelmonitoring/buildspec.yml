@@ -1,0 +1,22 @@
+version: 0.2
+
+phases:
+  install:
+    runtime-versions:
+      python: 3.10
+    commands:
+      - pip install boto3 sagemaker
+
+  build:
+    commands:
+      - pwd
+      - echo "Starting SageMaker Model Monitor setup..."
+      - mv axcess-Mlops/modelmonitoring/model_monitoring.py axcess-Mlops/
+      - |
+        python axcess-Mlops/model_monitoring.py \
+          --role $SAGEMAKER_ROLE \
+          --bucket $S3_BUCKET \
+          --prefix $PREFIX \
+          --baseline-dataset $BASELINE_DATASET \
+          --monitoring-input-path $MONITORING_INPUT_PATH \
+          --schedule-frequency $SCHEDULE_FREQUENCY
