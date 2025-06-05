@@ -52,7 +52,7 @@ s3_prefix = "taxi-duration"
 model_s3_path = f"s3://{s3_bucket}/{s3_prefix}/models/model.tar.gz"
 batch_input_path = f"s3://{s3_bucket}/{s3_prefix}/batch_input/"
 batch_output_path = f"s3://{s3_bucket}/{s3_prefix}/batch_output/"  # Updated to match your output path
-model_name = "trip-prediction-7"
+#model_name = "trip-prediction-7"
 
 # Step 1: Prepare batch input data
 print("\nPreparing batch input data...")
@@ -179,7 +179,7 @@ except Exception as e:
 print("\n# Summary")
 print("=" * 40)
 print("Batch transform job complete!")
-print(f"Model used: {model_name}")
+#print(f"Model used: {model_name}")
 #print(f"Batch transform job: {transform_job_name}")
 print(f"Input data: {batch_input_path}inference_data.csv")
 print(f"Output data: {batch_output_path}")
