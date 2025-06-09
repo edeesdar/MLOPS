@@ -13,5 +13,8 @@ phases:
       - echo "Starting SageMaker Model Monitor setup..."
       - mv axcess-Mlops/dataqualitymonitoring/data_qality_monitor.py axcess-Mlops/
       - |
-        python axcess-Mlops/data_qality_monitor.py
+        python axcess-Mlops/data_qality_monitor.py \
+          --default-bucket ${ml_s3_bucket} \
+          --model-package-group-name ${use_case} \
+          --kwargs "{\"model_package_group_name_input\":\"${model_package_group_name_input}\",\"model_version_input\":\"${model_version_input}\",\"ml_s3_bucket\":\"${ml_s3_bucket}\",\"use_case\":\"${use_case}\"}"
 
