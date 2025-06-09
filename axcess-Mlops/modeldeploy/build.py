@@ -207,7 +207,7 @@ def main():
     model_names = []
     pipeline_definitions = []
     container_definitions = []
-    inference_image_uri = '317185619046.dkr.ecr.us-east-1.amazonaws.com/inference-repo:31.0'
+    inference_image_uri = '317185619046.dkr.ecr.us-east-1.amazonaws.com/inference-repo:41.0'
     parsed_kwargs = json.loads(args.kwargs)
     model_package_group_name = args.model_package_group_name
     default_bucket = args.default_bucket
