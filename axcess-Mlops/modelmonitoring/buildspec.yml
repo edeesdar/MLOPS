@@ -5,7 +5,7 @@ phases:
     runtime-versions:
       python: 3.10
     commands:
-      - pip install boto3 sagemaker
+      - pip install boto3 pandas fsspec s3fs sagemaker scikit-learn numpy
 
   build:
     commands:
@@ -19,4 +19,5 @@ phases:
           --prefix $PREFIX \
           --baseline-dataset $BASELINE_DATASET \
           --monitoring-input-path $MONITORING_INPUT_PATH \
-          --schedule-frequency $SCHEDULE_FREQUENCY
+          --schedule-frequency $SCHEDULE_FREQUENCY \
+          --kwargs "{\"model_package_group_name_input\":\"${model_package_group_name_input}\",\"model_version_input\":\"${model_version_input}\",\"ml_s3_bucket\":\"${ml_s3_bucket}\",\"use_case\":\"${use_case}\"}"
