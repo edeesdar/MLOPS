@@ -9,17 +9,13 @@ from sagemaker.model_monitor.dataset_format import DatasetFormat
 from sagemaker.sklearn.estimator import SKLearn
 from sagemaker.xgboost.estimator import XGBoost
 import argparse
+import csv
+from io import StringIO
 
-# --- Step 1: Initialize Resources ---
-ml_s3_bucket = 'axcess-devst-sagemaker-bucket'
-prefix = 'taxi-duration'
-base_s3_path = f"s3://{ml_s3_bucket}/data"
-region = boto3.Session().region_name or 'us-east-1'
-boto_session = boto3.Session(region_name=region)
-sagemaker_session = session.Session(boto_session=boto_session)
-s3_client = boto3.client('s3', region_name=region)
-codepipeline_client = boto3.client('codepipeline', region_name=region)
-role = "arn:aws:iam::317185619046:role/service-role/AmazonSageMaker-ExecutionRole-20240228T142935"
+
+# --- Step 1: Initialize Resources -
+#ml_s3_bucket = 'axcess-devst-sagemaker-bucket'
+
 
 
 parser = argparse.ArgumentParser()
@@ -30,6 +26,17 @@ parsed_kwargs = json.loads(args.kwargs)
 
 model_package_group_name_input = parsed_kwargs.get('model_package_group_name_input')
 model_version_input = parsed_kwargs.get('model_version_input')
+ml_s3_bucket = parsed_kwargs.get('ml_s3_bucket')
+
+prefix = 'taxi-duration'
+base_s3_path = f"s3://{ml_s3_bucket}/data"
+region = boto3.Session().region_name or 'us-east-1'
+boto_session = boto3.Session(region_name=region)
+sagemaker_session = session.Session(boto_session=boto_session)
+s3_client = boto3.client('s3', region_name=region)
+codepipeline_client = boto3.client('codepipeline', region_name=region)
+role = "arn:aws:iam::317185619046:role/service-role/AmazonSageMaker-ExecutionRole-20240228T142935"
+metrics_s3_key = f"{prefix}/metrics_csv/metrics.csv"
 
 
 
@@ -118,6 +125,38 @@ for model_info in model_manifest["models"]:
         print("Full constraints:", json.dumps(constraints.body_dict, indent=2))
 
         print("Extracted metrics:",json.dumps(metrics, indent=2))
+
+        #---------------------------------------------------------------------------------
+        # Convert the metrics dictionary to CSV
+        csv_buffer = StringIO()
+        csv_writer = csv.writer(csv_buffer)
+        
+        # Write CSV header
+        csv_writer.writerow(["metric", "threshold", "comparison_operator"])
+        
+        # Write each metric row
+        for metric_name, details in metrics.items():
+            csv_writer.writerow([metric_name, details["threshold"], details["comparison_operator"]])
+        
+        # Optionally, print the CSV data to check
+        print("CSV content:")
+        print(csv_buffer.getvalue())
+        
+        # Now upload the CSV to S3
+        #s3 = boto3.client('s3')
+        #bucket_name = 'your-s3-bucket'  # Replace with your bucket name
+        #metrics_s3_key = 'path/to/metrics.csv'  # S3 key where the CSV will be stored
+        
+        response = s3_client.put_object(
+            Bucket=ml_s3_bucket,
+            Key=metrics_s3_key,
+            Body=csv_buffer.getvalue()
+        )
+        
+        print("CSV uploaded to s3://{}/{}".format(ml_s3_bucket, metrics_s3_key))
+
+        #------------------------------------------------------------------------
+
 
         thresholds = config["quality_thresholds"][model_info["model_type"].lower()]
         failures = 0
