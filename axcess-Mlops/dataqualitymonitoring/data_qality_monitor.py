@@ -1,4 +1,3 @@
-
 import boto3
 import pandas as pd
 from sagemaker import session
@@ -6,6 +5,24 @@ from sagemaker.model_monitor import ModelQualityMonitor
 from sagemaker.model_monitor.dataset_format import DatasetFormat
 import os
 from datetime import datetime
+import argparse
+import csv
+from io import StringIO
+import json
+
+#s3_bucket = "axcess-devst-sagemaker-bucket"
+s3_prefix = "taxi-duration"
+#prefix
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--kwargs", type=str, default=None)
+
+args, _ = parser.parse_known_args()
+parsed_kwargs = json.loads(args.kwargs)
+
+model_package_group_name_input = parsed_kwargs.get('model_package_group_name_input')
+model_version_input = parsed_kwargs.get('model_version_input')
+ml_s3_bucket = parsed_kwargs.get('ml_s3_bucket')
  
 def get_sagemaker_session(region_name):
     boto_session = boto3.Session(region_name=region_name)
@@ -22,28 +39,13 @@ def initialize_resources():
         print(f"Error initializing AWS resources: {str(e)}")
         raise
  
-#def load_dataset_with_header(s3_path, column_name):
-#    """Load a specific column from a CSV with headers"""
-#    try:
-#        print(f"Loading column '{column_name}' from: {s3_path}")
-#        df = pd.read_csv(
-#            s3_path,
-#            usecols=[column_name],
-#            engine='python'
-#        )
-        # Convert to numeric, coercing errors to NaN
-#        df[column_name] = pd.to_numeric(df[column_name], errors='coerce')
-#        na_count = df[column_name].isna().sum()
-#        return df, na_count
-#    except Exception as e:
-#        print(f"Error loading column '{column_name}': {str(e)}")
-#        raise
+
  
-def prepare_baseline_dataset(s3_bucket, s3_prefix):
+def prepare_baseline_dataset(ml_s3_bucket, s3_prefix):
     try:
         os.makedirs("processed", exist_ok=True)
         # Load ground truth data
-        gt_path = f"s3://{s3_bucket}/taxi-duration/model_monitor/input/monitoring_dataset.csv"
+        gt_path = f"s3://{ml_s3_bucket}/{s3_prefix}/model_monitor/input/monitoring_dataset.csv"
         column_name = "ground_truth"
         #gt_data, gt_na = load_dataset_with_header(gt_path, "ground_truth")
         """Load a specific column from a CSV with headers"""
@@ -66,7 +68,7 @@ def prepare_baseline_dataset(s3_bucket, s3_prefix):
         print(f"Loaded {len(gt_clean)} ground truth records, {gt_na} invalid values")
 
         # Load prediction data
-        pred_path = f"s3://{s3_bucket}/taxi-duration/batch_output/inference_data.csv.out"
+        pred_path = f"s3://{ml_s3_bucket}/{s3_prefix}/batch_output/inference_data.csv.out"
         column_name = "prediction"
         #pred_data, pred_na = load_dataset_with_header(pred_path, "prediction")
 
@@ -78,6 +80,32 @@ def prepare_baseline_dataset(s3_bucket, s3_prefix):
                     header=None,               # No header in the file
                     names=["prediction"]       # Assign column name
             )
+
+           #------------------------------------------------------------------------------------------------
+
+
+    
+          
+
+            local_dir = "/tmp/processed"  # Use /tmp in CodeBuild (only writable directory)
+            os.makedirs(local_dir, exist_ok=True)
+            
+            # === Prepare DataFrame ===
+            #trip_duration_df = df[['trip_duration']].head(100)
+            
+            # === Save CSV locally ===
+            trip_prediction_file = os.path.join(local_dir, "trip_prediction.csv")
+            pred_data.to_csv(trip_prediction_file, index=False, header=True)
+            
+            # === Upload to S3 ===
+            s3 = boto3.resource('s3')
+            trip_prediction_key = f"{s3_prefix}/output_trip_prediction/trip_prediction.csv"
+            s3.Object(ml_s3_bucket, trip_prediction_key).upload_file(trip_prediction_file)
+            
+            print(f"Uploaded to: s3://{ml_s3_bucket}/{trip_prediction_key}")
+
+           
+           #------------------------------------------------------------------------------------------------
             # Convert to numeric, coercing errors to NaN
             pred_data[column_name] = pd.to_numeric(pred_data[column_name], errors='coerce')
             pred_na = pred_data[column_name].isna().sum()
@@ -119,9 +147,9 @@ def prepare_baseline_dataset(s3_bucket, s3_prefix):
         # Upload to S3
         s3 = boto3.resource('s3')
         baseline_key = f"{s3_prefix}/monitoring/baseline_data.csv"
-        s3.Object(s3_bucket, baseline_key).upload_file(baseline_file)
-        print(f"Uploaded baseline data to: s3://{s3_bucket}/{baseline_key}")
-        return f"s3://{s3_bucket}/{baseline_key}"
+        s3.Object(ml_s3_bucket, baseline_key).upload_file(baseline_file)
+        print(f"Uploaded baseline data to: s3://{ml_s3_bucket}/{baseline_key}")
+        return f"s3://{ml_s3_bucket}/{baseline_key}"
     except Exception as e:
         print(f"\nDataset preparation failed: {str(e)}")
         print("Suggested troubleshooting steps:")
@@ -135,13 +163,13 @@ def main():
     try:
         sagemaker_session, region, _, role = initialize_resources()
         # Configuration
-        s3_bucket = "axcess-devst-sagemaker-bucket"
-        s3_prefix = "taxi-duration"
+        #s3_bucket = "axcess-devst-sagemaker-bucket"
+        #s3_prefix = "taxi-duration"
         current_time = datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
         # Data preparation
         print("\n" + "="*50)
         print("Starting data preparation phase")
-        baseline_uri = prepare_baseline_dataset(s3_bucket, s3_prefix)
+        baseline_uri = prepare_baseline_dataset(ml_s3_bucket, s3_prefix)
         print(f"\nBaseline dataset ready: {baseline_uri}")
         # Monitoring setup
         print("\n" + "="*50)
@@ -161,7 +189,7 @@ def main():
             job_name=job_name,
             baseline_dataset=baseline_uri,
             dataset_format=DatasetFormat.csv(header=True),
-            output_s3_uri=f"s3://{s3_bucket}/{s3_prefix}/monitoring/results/",
+            output_s3_uri=f"s3://{ml_s3_bucket}/{s3_prefix}/monitoring/results/",
             problem_type='Regression',
             inference_attribute="prediction",
             ground_truth_attribute="ground_truth"
