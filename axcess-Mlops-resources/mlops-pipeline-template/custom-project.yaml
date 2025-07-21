@@ -60,6 +60,14 @@ Parameters:
   mls3bucket:
     Type: String
     Description: Name of ml s3 bucket
+  ApproverEmail:
+    Type: String
+    Description: Email address for approver notifications
+    Default: approver@example.com
+  ExecutorEmail:
+    Type: String
+    Description: Email address for executor notifications
+    Default: executor@example.com
 
 
  
@@ -75,7 +83,98 @@ Resources:
     Condition: CreateNewBucket
     DeletionPolicy: Retain
     Properties:
-      BucketName: 'axcess-devst-sagemaker-bucket-1' # Provide S3 bucket name based on your requirment
+      BucketName: !Ref mls3bucket # Provide S3 bucket name based on your requirment
+
+  # You can edit below values later in parameter store.
+  SwitchConfigParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: switch_config
+      Type: String
+      Value: |
+        {
+          "switch": "ON",
+          "mode": "manual"
+        }
+      Description: Switch config for MLOps pipeline control
+
+  # Below values will chnage according to dataset, regression model other parameters
+  MonitoringConfigParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: monitoring_config
+      Type: String
+      Value: |
+        {
+          "quality_thresholds": {
+            "regression": {
+              "mae": {"threshold": 50.0, "comparison": "GreaterThanThreshold"},
+              "mse": {"threshold": 1500.0, "comparison": "GreaterThanThreshold"},
+              "rmse": {"threshold": 80.0, "comparison": "GreaterThanThreshold"}
+            }
+          }
+        }
+      Description: Monitoring thresholds for regression metrics
+
+  
+  LambdaExecutionRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      RoleName: !Sub 'LambdaExecutionRole-crossaccount'  # Provide Lambda Execution Role name based on your requirment which used to trigger Eventbridge rule for crossacount deployment.
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: LambdaExecutionPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: arn:aws:logs:*:*:*
+        - PolicyName: AmazonEventBridgeFullAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'events:*'
+                Resource: '*'
+        - PolicyName: SageMakerServiceCatalogProductsPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'sagemaker:*'
+                Resource: '*'
+        - PolicyName: CodePipelineFullAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'codepipeline:*'
+                Resource: '*'
+        - PolicyName: S3FullAccessPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 's3:*'
+                Resource: '*'
+
+  
+
+  
 
   SageMakerModelPipelineBuildProject:
     Type: 'AWS::CodeBuild::Project'
@@ -271,7 +370,6 @@ Resources:
         BuildSpec: axcess-Mlops/modelmonitoring/buildspec.yml
       TimeoutInMinutes: 480
 
-
   SageMakerModelretrainingProject:
     Type: 'AWS::CodeBuild::Project'
     Properties:
@@ -294,60 +392,7 @@ Resources:
         BuildSpec: axcess-Mlops/modelretraining/buildspec.yml
       TimeoutInMinutes: 480
 
-  LambdaExecutionRole:
-    Type: 'AWS::IAM::Role'
-    Properties:
-      RoleName: !Sub 'LambdaExecutionRole-crossaccount'  # Provide Lambda Execution Role name based on your requirment which used to trigger Eventbridge rule for crossacount deployment.
-      AssumeRolePolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: lambda.amazonaws.com
-            Action: sts:AssumeRole
-      Policies:
-        - PolicyName: LambdaExecutionPolicy
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Effect: Allow
-                Action:
-                  - logs:CreateLogGroup
-                  - logs:CreateLogStream
-                  - logs:PutLogEvents
-                Resource: arn:aws:logs:*:*:*
-        - PolicyName: AmazonEventBridgeFullAccess
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Effect: Allow
-                Action:
-                  - 'events:*'
-                Resource: '*'
-        - PolicyName: SageMakerServiceCatalogProductsPolicy
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Effect: Allow
-                Action:
-                  - 'sagemaker:*'
-                Resource: '*'
-        - PolicyName: CodePipelineFullAccess
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Effect: Allow
-                Action:
-                  - 'codepipeline:*'
-                Resource: '*'
-        - PolicyName: S3FullAccessPolicy
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Effect: Allow
-                Action:
-                  - 's3:*'
-                Resource: '*'
+  
 
   MyLambdaFunction:
     Type: 'AWS::Lambda::Function'
@@ -415,7 +460,7 @@ Resources:
     Type: 'AWS::CodePipeline::Pipeline'
     DependsOn: MlOpsArtifactsBucket
     Properties:
-      Name: !Sub 'sagemaker-${SageMakerProjectName}-${SageMakerProjectId}-modelbuild'  # Provide name for ModelBuild codepipeline pipeline
+      Name: !Sub 'sagemaker-${SageMakerProjectName}-modelbuild'  # Provide name for ModelBuild codepipeline pipeline
       RoleArn: !Join
         - ':'
         - - arn
@@ -475,13 +520,13 @@ Resources:
                 ProjectName: !Ref SageMakerModelPipelineBuildProject
                 EnvironmentVariables: !Sub |
                   [
-                    {"name": "use_case", "value": "${UseCase}"},
-                    {"name": "ml_s3_bucket", "value": "${mls3bucket}"},
-                    {"name": "s3_prefix", "value": "${s3Prefix}"},
-                    {"name": "processing_instance_type", "value": "${ProcessingInstanceType}"},
-                    {"name": "training_instance_type", "value": "${TrainingInstanceType}"},
-                    {"name": "processing_instance_count", "value": "${ProcessingInstanceCount}"},
-                    {"name": "training_instance_count", "value": "${TrainingInstanceCount}"}
+                    {"name": "use_case", "value": "#{variables.use_case}"},
+                    {"name": "ml_s3_bucket", "value": "#{variables.ml_s3_bucket}"},
+                    {"name": "s3_prefix", "value": "#{variables.s3_prefix}"},
+                    {"name": "processing_instance_type", "value": "#{variables.processing_instance_type}"},
+                    {"name": "training_instance_type", "value": "#{variables.training_instance_type}"},
+                    {"name": "processing_instance_count", "value": "#{variables.processing_instance_count}"},
+                    {"name": "training_instance_count", "value": "#{variables.training_instance_count}"}
                   ]
               RunOrder: 1
 
@@ -491,7 +536,7 @@ Resources:
     Type: 'AWS::CodePipeline::Pipeline'
     DependsOn: MlOpsArtifactsBucket
     Properties:
-      Name: !Sub 'sagemaker-${SageMakerProjectName}-${SageMakerProjectId}-modeldeploy'  # Provide name for ModelDeploy codepipeline pipeline
+      Name: !Sub 'sagemaker-${SageMakerProjectName}-modeldeploy'  # Provide name for ModelDeploy codepipeline pipeline
       RoleArn: !Join
         - ':'
         - - arn
@@ -549,12 +594,12 @@ Resources:
                 ProjectName: !Ref ModelDeployBuildProject
                 EnvironmentVariables: !Sub |
                   [
-                    {"name": "use_case", "value": "${UseCase}"},
-                    {"name": "ml_s3_bucket", "value": "${mls3bucket}"},
-                    {"name": "s3_prefix", "value": "${s3Prefix}"},
-                    {"name": "model_package_group_name_input", "value": "${ModelPackageGroupnameInput}"},
-                    {"name": "model_version_input", "value": "${ModelVersionInput}"},
-                    {"name": "StackName", "value": "${StackName}"}
+                    {"name": "use_case", "value": "#{variables.use_case}"},
+                    {"name": "ml_s3_bucket", "value": "#{variables.ml_s3_bucket}"},
+                    {"name": "s3_prefix", "value": "#{variables.s3_prefix}"},
+                    {"name": "model_package_group_name_input", "value": "#{variables.model_package_group_name_input}"},
+                    {"name": "model_version_input", "value": "#{variables.model_version_input}"},
+                    {"name": "StackName", "value": "#{variables.StackName}"}
                   ]
               RunOrder: 1
         - Name: DeployStaging
@@ -578,7 +623,7 @@ Resources:
                     - !Ref 'AWS::AccountId'
                     - >-
                       role/AmazonSageMakerServiceCatalogProductsUseRoleMultiModelTB
-                StackName: !Ref StackName
+                StackName: !Sub "#{variables.StackName}"
                 TemplateConfiguration: 'BuildArtifact::staging-config-export.json'
                 TemplatePath: 'BuildArtifact::template-export.yml'
               RunOrder: 1
@@ -598,12 +643,12 @@ Resources:
                 PrimarySource: SourceArtifact
                 EnvironmentVariables: !Sub |
                   [
-                    {"name": "use_case", "value": "${UseCase}"},
-                    {"name": "ml_s3_bucket", "value": "${mls3bucket}"},
-                    {"name": "s3_prefix", "value": "${s3Prefix}"},
-                    {"name": "model_package_group_name_input", "value": "${ModelPackageGroupnameInput}"},
-                    {"name": "model_version_input", "value": "${ModelVersionInput}"},
-                    {"name": "StackName", "value": "${StackName}"}
+                    {"name": "use_case", "value": "#{variables.use_case}"},
+                    {"name": "ml_s3_bucket", "value": "#{variables.ml_s3_bucket}"},
+                    {"name": "s3_prefix", "value": "#{variables.s3_prefix}"},
+                    {"name": "model_package_group_name_input", "value": "#{variables.model_package_group_name_input}"},
+                    {"name": "model_version_input", "value": "#{variables.model_version_input}"},
+                    {"name": "StackName", "value": "#{variables.StackName}"}
                   ]
               RunOrder: 2
             
@@ -621,6 +666,15 @@ Resources:
                 - Name: ModelMonitorArtifact
               Configuration:
                 ProjectName: !Ref SageMakerModelmonitordProject
+                EnvironmentVariables: !Sub |
+                  [
+                    {"name": "use_case", "value": "#{variables.use_case}"},
+                    {"name": "ml_s3_bucket", "value": "#{variables.ml_s3_bucket}"},
+                    {"name": "s3_prefix", "value": "#{variables.s3_prefix}"},
+                    {"name": "model_package_group_name_input", "value": "#{variables.model_package_group_name_input}"},
+                    {"name": "model_version_input", "value": "#{variables.model_version_input}"},
+                    {"name": "StackName", "value": "#{variables.StackName}"}
+                  ]
               RunOrder: 1
         
         - Name: DataQualityMonitor
@@ -637,6 +691,40 @@ Resources:
                 - Name: DatamonitorArtifact
               Configuration:
                 ProjectName: !Ref SageMakerdatamonitordProject
+                EnvironmentVariables: !Sub |
+                  [
+                    {"name": "use_case", "value": "#{variables.use_case}"},
+                    {"name": "ml_s3_bucket", "value": "#{variables.ml_s3_bucket}"},
+                    {"name": "s3_prefix", "value": "#{variables.s3_prefix}"},
+                    {"name": "model_package_group_name_input", "value": "#{variables.model_package_group_name_input}"},
+                    {"name": "model_version_input", "value": "#{variables.model_version_input}"},
+                    {"name": "StackName", "value": "#{variables.StackName}"}
+                  ]
+              RunOrder: 1
+
+        - Name: SageMakerModelretraining
+          Actions:
+            - Name: ModelRetrainingStage
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Provider: CodeBuild
+                Version: 1
+              InputArtifacts:
+                - Name: SourceArtifact
+              OutputArtifacts:
+                - Name: RetrainingArtifact
+              Configuration:
+                ProjectName: !Ref SageMakerModelretrainingProject
+                EnvironmentVariables: !Sub |
+                  [
+                    {"name": "use_case", "value": "#{variables.use_case}"},
+                    {"name": "ml_s3_bucket", "value": "#{variables.ml_s3_bucket}"},
+                    {"name": "s3_prefix", "value": "#{variables.s3_prefix}"},
+                    {"name": "model_package_group_name_input", "value": "#{variables.model_package_group_name_input}"},
+                    {"name": "model_version_input", "value": "#{variables.model_version_input}"},
+                    {"name": "StackName", "value": "#{variables.StackName}"}
+                  ]
               RunOrder: 1
 
         - Name: ApproveDeployment
@@ -673,46 +761,394 @@ Resources:
         source:
           - "sagemaker-lambda-events"
       State: "ENABLED"  
+
+
+# Infrastructure for switch based on retraining
+
+  ApproverSNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: MLOpsApproverNotifications
+      DisplayName: MLOps Approver Notifications
+
+  ExecutorSNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: MLOpsExecutorNotifications
+      DisplayName: MLOps Executor Notifications
+
+  # SNS Subscriptions
+  ApproverEmailSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Protocol: email
+      TopicArn: !Ref ApproverSNSTopic
+      Endpoint: !Ref ApproverEmail
+
+  ExecutorEmailSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Protocol: email
+      TopicArn: !Ref ExecutorSNSTopic
+      Endpoint: !Ref ExecutorEmail
+
+
+  # IAM Role for Lambda Functions
+  MLOpsRetrainigLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: MLOpsRetrainingLambdaExecutionRole
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      
+      Policies:
+        - PolicyName: LambdaExecutionPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: arn:aws:logs:*:*:*
+
+        - PolicyName: CodePipelineFullAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'codepipeline:*'
+                Resource: '*'
+        - PolicyName: S3FullAccessPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 's3:*'
+                Resource: '*'
+
+        - PolicyName: SNSFullAccessPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'sns:*'
+                Resource: '*'
+
+        - PolicyName: APIGatewayInvokePolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'execute-api:Invoke'
+                Resource: '*'
+
+  # Lambda Functions
+  MLOpsEvaluateFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: mlops_evaluate_and_notify_lambda
+      Runtime: python3.12
+      Handler: index.lambda_handler
+      Role: !GetAtt MLOpsRetrainigLambdaRole.Arn
+      Timeout: 300
+      MemorySize: 128
+      Environment:
+        Variables:
+          CONFIG_BUCKET: !Ref MlOpsArtifactsBucket
+          SWITCH_CONFIG_KEY: config/switch_config.json
+          MONITORING_CONFIG_KEY: config/monitoring_config.json
+          Approver_APPROVAL_URL: !Sub "https://${ApproverAPI}.execute-api.${AWS::Region}.amazonaws.com/dev"
+          Approver_SNS_TOPIC_ARN: !Ref ApproverSNSTopic
+          Pipeline_Name: !Ref ModelBuildPipeline
+          
+      Code:
+        ZipFile: |
+          import boto3, json, os
+          import uuid
+          from datetime import datetime, timezone
+
+          codepipeline = boto3.client('codepipeline')
+          sns = boto3.client('sns')
+          ssm = boto3.client('ssm')
+          s3 = boto3.client('s3')
+
+          def get_ssm_parameter(name):
+              response = ssm.get_parameter(Name=name)
+              return json.loads(response['Parameter']['Value'])
+
+          def lambda_handler(event, context):
+              switch_config = get_ssm_parameter('switch_config')
+              monitoring_config = get_ssm_parameter('monitoring_config')
+
+              switch = switch_config.get('switch', 'OFF')
+              mode = switch_config.get('mode', 'manual')
+              model_type = "regression"
+              metrics = event.get('detail', {}).get('metrics', {})
+              model_name = event.get("detail", {}).get("model_name", "default")
+              pipeline_name = os.environ['Pipeline_Name']
+
+              token = str(uuid.uuid4())
+              print('token:', token)
+
+              approval_data = {
+                  "status": "pending",
+                  "model": model_name,
+                  "created_at": datetime.now(timezone.utc).isoformat(),
+                  "approver_approved": False,
+                  "executor_approved": False
+              }
+
+              token_key = f"tokens/{token}.json"
+              s3.put_object(
+                  Bucket=os.environ['CONFIG_BUCKET'],
+                  Key=token_key,
+                  Body=json.dumps(approval_data)
+              )
+
+              thresholds = monitoring_config["quality_thresholds"].get(model_type, {})
+              failures = 0
+              for metric, spec in thresholds.items():
+                  actual = metrics.get(metric, {}).get("value", 0)
+                  threshold = spec.get("threshold", 0)
+                  if actual > threshold:
+                      failures += 1
+
+              if switch == 'OFF':
+                  print("Switch OFF. Skipping retraining.")
+                  return
+
+              if failures > 0:
+                  if mode == 'automatic':
+                      cp_response = codepipeline.start_pipeline_execution(
+                          name=pipeline_name)
+                      print(f"CodePipeline Triggered: {cp_response['pipelineExecutionId']}")
+                  elif mode == 'manual':
+                      approval_link = f"{os.environ['Approver_APPROVAL_URL']}?token={token}"
+                      message = f"Model performance dropped. Approve retraining: {approval_link}"
+                      sns.publish(
+                          TopicArn=os.environ['Approver_SNS_TOPIC_ARN'],
+                          Subject="Manual Approval Required",
+                          Message=message
+                      )
+                      print("SNS Notification Sent for Manual Approval")
+              else:
+                  print("Metrics OK. Skipping retraining.")
+                  
+  MLOpsApproverFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: mlops_approver_approval_lambda
+      Runtime: python3.12
+      Handler: index.lambda_handler
+      Role: !GetAtt MLOpsRetrainigLambdaRole.Arn
+      Timeout: 300
+      MemorySize: 128
+      Environment:
+        Variables:
+          EXECUTOR_API_URL: !Sub "https://${ExecutorAPI}.execute-api.${AWS::Region}.amazonaws.com/dev"
+          EXECUTOR_SNS_TOPIC_ARN: !Ref ExecutorSNSTopic
+          CONFIG_BUCKET: !Ref MlOpsArtifactsBucket
+      Code:
+        ZipFile: |
+          import boto3, json, os
+          from datetime import datetime, timezone, timedelta
+
+          s3 = boto3.client('s3')
+          sns = boto3.client('sns')
+
+          def lambda_handler(event, context):
+              print('event:',event)
+              
+              token = event['queryStringParameters']['token']
+              print('token:',token)
+              
+              BUCKET = os.environ['CONFIG_BUCKET']
+              TOKEN_KEY = f"tokens/{token}.json"
+
+              try:
+                  obj = s3.get_object(Bucket=BUCKET, Key=TOKEN_KEY)
+                  data = json.loads(obj['Body'].read())
+
+                  created_at = datetime.fromisoformat(data['created_at'].replace("Z", "+00:00"))
+                  now = datetime.now(timezone.utc)
+
+                  if now - created_at > timedelta(minutes=30):
+                      return {"statusCode": 403, "body": "Link expired."}
+
+                  if data['approver_approved']:
+                      return {"statusCode": 400, "body": "Already approved."}
+
+                  data['approver_approved'] = True
+                  s3.put_object(Bucket=BUCKET, Key=TOKEN_KEY, Body=json.dumps(data))
+
+                  executor_link = f"{os.environ['EXECUTOR_API_URL']}?token={token}"
+                  sns.publish(
+                      TopicArn=os.environ['EXECUTOR_SNS_TOPIC_ARN'],
+                      Subject="Executor Approval Required",
+                      Message=f"Approver approved model '{data['model']}'. Executor, click to proceed:\n{executor_link}"
+                  )
+
+                  return {"statusCode": 200, "body": "Approval recorded. Executor notified."}
+
+              except Exception as e:
+                  return {"statusCode": 500, "body": str(e)}
+
+  MLOpsExecutorFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: executor_approval_lambda
+      Runtime: python3.12
+      Handler: index.lambda_handler
+      Role: !GetAtt MLOpsRetrainigLambdaRole.Arn
+      Timeout: 300
+      MemorySize: 128
+      Environment:
+        Variables:
+          CONFIG_BUCKET: !Ref MlOpsArtifactsBucket
+          Pipeline_Name: !Ref ModelBuildPipeline
+      Code:
+        ZipFile: |
+          import boto3, json, os
+          from datetime import datetime, timezone, timedelta
+
+          s3 = boto3.client('s3')
+          codepipeline = boto3.client('codepipeline')
+
+          def lambda_handler(event, context):
+              token = event['queryStringParameters']['token']
+              BUCKET = os.environ['CONFIG_BUCKET']
+              pipeline_name = os.environ['Pipeline_Name']
+              TOKEN_KEY = f"tokens/{token}.json"
+
+              try:
+                  obj = s3.get_object(Bucket=BUCKET, Key=TOKEN_KEY)
+                  data = json.loads(obj['Body'].read())
+
+                  created_at = datetime.fromisoformat(data['created_at'].replace("Z", "+00:00"))
+                  now = datetime.now(timezone.utc)
+
+                  if now - created_at > timedelta(minutes=30):
+                      return {"statusCode": 403, "body": "Link expired."}
+
+                  if not data['approver_approved']:
+                      return {"statusCode": 400, "body": "Approver has not approved yet."}
+
+                  if data['executor_approved']:
+                      return {"statusCode": 400, "body": "Already approved by executor."}
+
+                  data['executor_approved'] = True
+                  data['status'] = "Complete"
+
+                  
+                  cp = codepipeline.start_pipeline_execution(name=pipeline_name)
+
+                  s3.put_object(Bucket=BUCKET, Key=TOKEN_KEY, Body=json.dumps(data))
+
+                  return {"statusCode": 200, "body": f"Executor approved. Pipeline triggered: {cp['pipelineExecutionId']}"}
+
+              except Exception as e:
+                  return {"statusCode": 500, "body": str(e)}
+
+  # API Gateway for Approver
+  ApproverAPI:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Name: MLOpsApproverAPI
+      Description: API for MLOps approver approval
+
+  #ApproverResource:
+  #  Type: AWS::ApiGateway::Resource
+  #  Properties:
+  #    RestApiId: !Ref ApproverAPI
+  #    ParentId: !GetAtt ApproverAPI.RootResourceId
+  #    PathPart: approve
+
+  ApproverMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref ApproverAPI
+      ResourceId: !GetAtt ApproverAPI.RootResourceId
+      HttpMethod: GET
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${MLOpsApproverFunction.Arn}/invocations"
+
+  ApproverDeployment:
+    Type: AWS::ApiGateway::Deployment
+    DependsOn: ApproverMethod
+    Properties:
+      RestApiId: !Ref ApproverAPI
+      StageName: dev
+
+  ApproverLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref MLOpsApproverFunction
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 
+        - "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${RestApiId}/*/*"
+        - RestApiId: !Ref ApproverAPI
+
+  # API Gateway for Executor
+  ExecutorAPI:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Name: MLOpsExecutorAPI
+      Description: API for MLOps executor approval
+
+  #ExecutorResource:
+  #  Type: AWS::ApiGateway::Resource
+  #  Properties:
+  #    RestApiId: !Ref ExecutorAPI
+  #    ParentId: !GetAtt ExecutorAPI.RootResourceId
+  #    PathPart: execute
+
+  ExecutorMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref ExecutorAPI
+      ResourceId: !GetAtt ExecutorAPI.RootResourceId
+      HttpMethod: GET
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${MLOpsExecutorFunction.Arn}/invocations"
+
+  ExecutorDeployment:
+    Type: AWS::ApiGateway::Deployment
+    DependsOn: ExecutorMethod
+    Properties:
+      RestApiId: !Ref ExecutorAPI
+      StageName: dev
+
+  ExecutorLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref MLOpsExecutorFunction
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 
+        - "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${RestApiId}/*/*"
+        - RestApiId: !Ref ExecutorAPI
+
+
   
   
       
 
 Rules: {}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

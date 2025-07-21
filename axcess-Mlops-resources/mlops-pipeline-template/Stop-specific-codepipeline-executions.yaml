@@ -1,0 +1,124 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Create EventBridge rule and Lambda to stop initial execution of specific SageMaker project pipelines.
+
+Parameters:
+  ProjectName:
+    Type: String
+    Description: Name of the SageMaker project
+  
+
+
+Resources:
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "StopSpecificPipelinesRole"
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: AllowStopPipelineAndLogs
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - codepipeline:StopPipelineExecution
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: "*"
+
+  StopSpecificPipelinesLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "StopSpecificPipelinesFunction"
+      Runtime: python3.9
+      Handler: index.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Timeout: 300
+      Code:
+        ZipFile: |
+          import boto3
+          import os
+          
+          def lambda_handler(event, context):
+              pipeline = event['detail']['pipeline']
+              execution_id = event['detail']['execution-id']
+              
+              # Get project name and ID from environment variables
+              project_name = os.environ['SAGEMAKER_PROJECT_NAME']
+              
+              
+              # Define the specific pipeline names to stop
+              build_pipeline = f"sagemaker-{project_name}-modelbuild"
+              deploy_pipeline = f"sagemaker-{project_name}-modeldeploy"
+              
+              # Only stop the pipeline if it matches one of our specific pipelines
+              if pipeline == build_pipeline or pipeline == deploy_pipeline:
+                  client = boto3.client('codepipeline')
+                  print(f"Stopping pipeline execution for {pipeline} with execution ID {execution_id}")
+                  client.stop_pipeline_execution(
+                      pipelineName=pipeline,
+                      pipelineExecutionId=execution_id,
+                      abandon=True,
+                      reason='Stopping initial execution triggered by CloudFormation'
+                  )
+                  return {
+                      'statusCode': 200,
+                      'body': f'Successfully stopped pipeline {pipeline}'
+                  }
+              else:
+                  print(f"Pipeline {pipeline} does not match target pipelines, ignoring")
+                  return {
+                      'statusCode': 200,
+                      'body': f'Pipeline {pipeline} not in target list, no action taken'
+                  }
+      Environment:
+        Variables:
+          SAGEMAKER_PROJECT_NAME: !Ref ProjectName
+
+  SpecificPipelineStopRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub "StopSpecificPipelinesRule"
+      EventPattern:
+        source:
+          - "aws.codepipeline"
+        detail-type:
+          - "CodePipeline Pipeline Execution State Change"
+        detail:
+          state:
+            - "STARTED"
+          execution-trigger:
+            trigger-type:
+              - "CreatePipeline"
+      Targets:
+        - Arn: !GetAtt StopSpecificPipelinesLambda.Arn
+          Id: "StopSpecificPipelinesLambdaTarget"
+
+  LambdaInvokePermission:
+    Type: AWS::Lambda::Permission
+    DependsOn:
+      - StopSpecificPipelinesLambda
+      - SpecificPipelineStopRule
+    Properties:
+      FunctionName: !Ref StopSpecificPipelinesLambda
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt SpecificPipelineStopRule.Arn
+
+Outputs:
+  LambdaArn:
+    Description: ARN of the Lambda function
+    Value: !GetAtt StopSpecificPipelinesLambda.Arn
+  EventRuleArn:
+    Description: ARN of the EventBridge rule
+    Value: !GetAtt SpecificPipelineStopRule.Arn

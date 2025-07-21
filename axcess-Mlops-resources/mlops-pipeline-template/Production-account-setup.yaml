@@ -1,0 +1,451 @@
+Description: >-
+  Toolchain template which provides the resources needed to represent
+  infrastructure as code. This template specifically creates Lambda function and EventBridge rule in Production account.  
+Parameters:
+  SageMakerProjectName:
+    Type: String
+    Description: Name of the project
+    MinLength: 1
+    MaxLength: 32
+    AllowedPattern: '^[a-zA-Z](-*[a-zA-Z0-9])*'
+  
+Resources:
+  LambdaExecutionRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      RoleName: !Sub 'LambdaExecutionRole-prod-account'  # Provide Lambda Execution Role name based on your requirment which used to launch Cloudformation template for ml model deployment.
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: LambdaExecutionPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: arn:aws:logs:*:*:*
+        - PolicyName: AmazonEventBridgeFullAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'events:*'
+                Resource: '*'
+        - PolicyName: SageMakerServiceCatalogProductsPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'sagemaker:*'
+                Resource: '*'
+        - PolicyName: CodePipelineFullAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'codepipeline:*'
+                Resource: '*'
+        - PolicyName: S3FullAccessPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 's3:*'
+                Resource: '*'
+        - PolicyName: AWSCloudFormationFullAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'cloudformation:*' 
+                Resource: '*'
+
+
+  MyLambdaFunction:
+    Type: 'AWS::Lambda::Function'
+    Properties: 
+      FunctionName: !Sub '${SageMakerProjectName}-prod-account-deployment'  # Provide Lambda Execution Role name based on your requirment which used to launch Cloudformation template for ml model deployment.
+      Runtime: python3.9
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Handler: index.lambda_handler
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          import zipfile
+          import re
+          import os
+
+
+
+
+          def lambda_handler(event, context):
+              
+              s3 = boto3.client('s3')
+              sm_client = boto3.client('sagemaker')
+              cloudformation_client = boto3.client('cloudformation')
+              sts_client = boto3.client('sts')
+
+              assumed_role = sts_client.assume_role(
+              RoleArn="arn:aws:iam::345594592951:role/staging_sagemaker_assumed_role",  
+                  RoleSessionName="AssumeRoleSession"
+              )
+
+              credentials = assumed_role['Credentials']
+              
+              
+          # ------------------------ Get events from eventbridge events----------------------------------#
+              print('check')
+              print('event:',event)
+
+              detail_information = event['detail']
+              #    StageName = detail_information["Parameters"]['StageName']
+              #    ModelExecutionRoleArn = detail_information["Parameters"]['ModelExecutionRoleArn']
+              #    PipelineDefinitionBody = detail_information["Parameters"]["PipelineDefinitionBody"]
+              #    ModelDataUrl = detail_information["Parameters"]["ModelDataUrl"]
+              #    version = json.loads(PipelineDefinitionBody["Version"])
+              print("event_details is : " + json.dumps(event['detail']))
+              #    print("StageName is : " + StageName)
+              #    print("ModelExecutionRoleArn is : " + ModelExecutionRoleArn)
+              #    print("PipelineDefinitionBody is : " + PipelineDefinitionBody)
+              #    print("version is : " + version)
+
+              #    BUCKET_NAME = 'sagemaker-project-p-69wapckwev1l' 
+              #    KEY = 'sagemaker-xfactrs-an/BuildArtif/UzOL4UY'
+
+              #--------------------- Define required values ---------------------------------------------#
+
+              model_bucket = "mlops-pipeline-prod-s3-bucket"
+              input_file_s3_path = "cspire/classificationtest1/paymentdefaultertest2/data/processing/input/sample_data.csv"
+              ModelExecutionRoleArn = "arn:aws:iam::361769565206:role/AmazonSageMakerServiceCatalogProductsUseRoleMultiModelTB"
+              temp_file_name = '/tmp/my_local_artifact_file.zip'
+              model_file_name = "/tmp/model.tar.gz"
+              #    s3_bucket_file_name = "s3://prod-sagemaker-project-p-69wapckwev1l/zip_file/"
+
+              #    artifact_path = f's3://{BUCKET_NAME}/{KEY}'
+              BUCKET_NAME = detail_information["bucket"]
+              KEY = detail_information["key"]
+
+              #---------------------- Download zip file in temp direcorty of Lambda ----------------------#
+
+              
+
+              # Create s3 client with assumed role credentials
+              s3_client = boto3.client(
+                  's3',
+                  aws_access_key_id=credentials['AccessKeyId'],
+                  aws_secret_access_key=credentials['SecretAccessKey'],
+                  aws_session_token=credentials['SessionToken'],
+                  region_name='us-east-1'
+              )
+
+              s3_client.download_file(BUCKET_NAME, KEY, temp_file_name)
+
+              # Download in s3 bucket
+              #    s3.download_file(BUCKET_NAME, KEY, s3_bucket_file_name)
+              #    archive = zipfile.ZipFile("s3://prod-sagemaker-project-p-69wapckwev1l/zip_file/", 'r')
+              #    yaml_file = archive.read('template-export.yml')
+
+
+
+              #--------------------- Get template file from zip ------------------------------------------# 
+
+              archive = zipfile.ZipFile('/tmp/my_local_artifact_file.zip', 'r')
+              yaml_file = archive.read('template-export.yml')
+              yaml_file = yaml_file.decode('utf-8')
+
+              #---------------------- Get config file from zip ------------------------------------------# 
+
+              archive = zipfile.ZipFile('/tmp/my_local_artifact_file.zip', 'r')
+              config_file = archive.read('prod-config-export.json')
+              config_file = json.loads(config_file)
+
+              #----------------------- Download and uppload input data file -----------------------------#
+
+              key_input_file_source = "cspire/classificationtest1/paymentdefaultertest2/data/processing/input/sample_data.csv"
+              #key_input_file_destination = "s3://prod-sagemaker-project-p-69wapckwev1l/inference/data/input/"
+              temp_input_file = "/tmp/sample_data.csv"
+              s3_client.download_file(BUCKET_NAME, key_input_file_source, temp_input_file)
+
+              s3.upload_file(temp_input_file,model_bucket,input_file_s3_path)
+
+              #---------------------- Get required field from config file --------------------------------#
+
+              container_image = config_file["Parameters"]["ContainerImage"]
+              model_name = config_file["Parameters"]["ModelName"]
+              Pipeline_DefinitionBody = config_file["Parameters"]["PipelineDefinitionBody"]
+              SageMaker_ProjectId = config_file["Parameters"]["SageMakerProjectId"]
+              SageMaker_ProjectName = config_file["Parameters"]["SageMakerProjectName"]
+              Stage_Name = config_file["Parameters"]["StageName"]
+              UseCase = config_file["Parameters"]["UseCase"]
+              Algorithm = config_file["Parameters"]["Algorithm"]
+              Tenant = config_file["Parameters"]["Tenant"]
+              print(model_name)
+
+              dev_model_pakcage_group_name = re.sub(r'-\d+(-\w+)?$|-\w+$', '',model_name)
+              print('dev_model_pakcage_group_name is:', dev_model_pakcage_group_name)
+
+
+              ModelDataUrl = config_file["Parameters"]["ModelDataUrl"]
+              print(ModelDataUrl)
+
+              path_without_prefix = ModelDataUrl.replace("s3://", "", 1)
+
+              #----------------------- Split the remaining part by the first '/' to get the bucket and key ----------------#
+
+              bucket_name, key = path_without_prefix.split("/", 1)
+
+              print(f"Bucket: {bucket_name}")
+              print(f"Key: {key}")
+
+              #----------------------- Download model.tar.gz file from dev s3 bucket ---------------------------------------#
+
+              s3_client.download_file(bucket_name, key, model_file_name)
+              print("model.tar.gz file has been downloaded in prod lambda")
+
+              #------------------------ upload model.tar.gz file from temp dir to prod bucket ----------------------------------------#
+
+              s3_path = "models/model.tar.gz"
+              prod_s3_model_path = f's3://{model_bucket}/{s3_path}'
+
+              s3.upload_file(model_file_name,model_bucket,s3_path)
+
+              print("model.tar.gz file has been uploaded in to prod s3")
+
+              #    response = sm_client.describe_model_package_group(
+              #            ModelPackageGroupName='xfactrs-aniket-v4-p-69wapckwev1l'
+              #        )
+              #    print('model_info is:',response)
+
+
+
+              #------------------------ Access model registry from Dev account ----------------------------------------------#
+
+              # Assume role in source account
+              #sts_client = boto3.client('sts')
+              # RoleArn = Role ARN from Dev account which Assumed
+              
+
+              # Create SageMaker client with assumed role credentials
+              sagemaker_client = boto3.client(
+                  'sagemaker',
+                  aws_access_key_id=credentials['AccessKeyId'],
+                  aws_secret_access_key=credentials['SecretAccessKey'],
+                  aws_session_token=credentials['SessionToken'],
+                  region_name='us-east-1'
+              )
+
+              # print('aws_access_key_id:',assumed_role['Credentials']['AccessKeyId'])
+              # print('aws_secret_access_key:',assumed_role['Credentials']['SecretAccessKey'])
+
+
+              # Example: Describe the model
+              response = sagemaker_client.describe_model(
+              ModelName=model_name
+                  )
+              print('model_info is:',response)
+
+
+              # Get model package group name from the model name
+              model_package_group_name = re.sub(r'-\d+(-\w+)?$|-\w+$', '',model_name)
+              print("model_package_group_name:",model_package_group_name)
+
+              desired_name = model_package_group_name
+
+              # list model package group names from prod account
+              model_package_group_response = sm_client.list_model_package_groups(
+
+                      SortBy='CreationTime'
+                      
+                  )
+                  
+              print("model_package_group_response is:",model_package_group_response)    
+              model_package_groups = model_package_group_response["ModelPackageGroupSummaryList"]
+              # Check if the present ModelPackageGroupName exists in the list
+              exists = any(group['ModelPackageGroupName'] == desired_name for group in model_package_groups)
+
+              if exists:
+                  print(f'{desired_name} is available in the list.')
+              else:
+                  # Create a new model package group
+              #        sagemaker_client = boto3.client('sagemaker')
+                  
+                  response = sm_client.create_model_package_group(
+                      ModelPackageGroupName=desired_name,
+                      ModelPackageGroupDescription='model pakcage group'
+                  )
+                  print(response)
+                  print(f'Created new model package group: {desired_name}')
+                  
+              # Describe the current model_package_group from prod
+              #    mode_pak_grp_response = sm_client.describe_model_package_group(
+              #        ModelPackageGroupName=desired_name
+              #    )
+
+              #    print('mode_pak_grp_arn_response:',mode_pak_grp_response)
+
+              # Create model package in prod account
+
+              # Specify the model source
+              #    model_url = "s3://{bucket}/model.tar.gz"
+
+              #Set up the parameter dictionary to pass to the create_model_package API operation
+              modelpackage_inference_specification =  {
+                  "InferenceSpecification": {
+                      "Containers": [
+                          {
+                              "Image": container_image,
+                              "ModelDataUrl": prod_s3_model_path
+                          }
+                      ],
+                      "SupportedContentTypes": [ "text/csv" ],
+                      "SupportedResponseMIMETypes": [ "text/csv" ],
+                  }
+              }
+
+              # Alternatively, you can specify the model source like this:
+              # modelpackage_inference_specification["InferenceSpecification"]["Containers"][0]["ModelDataUrl"]=model_url
+
+              create_model_package_input_dict = {
+                  "ModelPackageGroupName" : desired_name,
+                  "ModelPackageDescription" : "Model to work on mlops pipeline project",
+              #    "Domain"="QuickSetupDomain-20240523T142092",
+                  "ModelApprovalStatus" : "PendingManualApproval"
+              }
+              create_model_package_input_dict.update(modelpackage_inference_specification)
+
+              #----------------------------------- Create the model package in the Model Registry account -------------------------------------------#
+
+              create_model_package_response = sm_client.create_model_package(**create_model_package_input_dict)
+              model_package_arn = create_model_package_response["ModelPackageArn"]
+              print('ModelPackage Version ARN : {}'.format(model_package_arn))
+
+
+
+              #---------------------------------- Crate stack -------------------------------------------------------------------------------------#
+
+              #prod_InputPath = os.environ['prod_InputPath']
+              #prod_OutputPath = os.environ['prod_OutputPath']
+              prod_InputPath = 's3://mlops-pipeline-prod-s3-bucket/data/Input/'
+              prod_OutputPath = 's3://mlops-pipeline-prod-s3-bucket/data/output/'
+                  
+
+              response = cloudformation_client.create_stack(
+                      StackName=f'{model_name}-stack',
+                      TemplateBody=yaml_file,
+                      Parameters=[
+                          {
+                              'ParameterKey': 'ContainerImage',
+                              'ParameterValue': container_image
+                          },
+                          {
+                              'ParameterKey': 'InputPath',
+                              'ParameterValue': prod_InputPath
+                          },
+                          {
+                              'ParameterKey': 'OutputPath',
+                              'ParameterValue': prod_OutputPath
+                          },
+                          {
+                              'ParameterKey': 'ModelDataUrl',
+                              'ParameterValue': prod_s3_model_path
+                          },
+                          {
+                              'ParameterKey': 'ModelExecutionRoleArn',
+                              'ParameterValue': ModelExecutionRoleArn
+                          },
+                          {
+                              'ParameterKey': 'ModelName',
+                              'ParameterValue': model_name
+                          },
+                          {
+                              'ParameterKey': 'PipelineDefinitionBody',
+                              'ParameterValue': Pipeline_DefinitionBody
+                          },
+                          {
+                              'ParameterKey': 'SageMakerProjectId',
+                              'ParameterValue': SageMaker_ProjectId
+                          },
+                          {
+                              'ParameterKey': 'SageMakerProjectName',
+                              'ParameterValue': SageMaker_ProjectName
+                          },
+                          {
+                              'ParameterKey': 'StageName',
+                              'ParameterValue': Stage_Name
+                          },
+                          {
+                              'ParameterKey': 'UseCase',
+                              'ParameterValue': UseCase
+                          },
+                          {
+                              'ParameterKey': 'Algorithm',
+                              'ParameterValue': Algorithm
+                          },
+                          {
+                              'ParameterKey': 'Tenant',
+                              'ParameterValue': Tenant
+                          }
+                      ],
+                      Tags=[
+                          {
+                              'Key': 'Project_name',
+                              'Value': 'mlops_pipeline'
+                          },
+                      ]
+                  )
+                  
+              print("stack created successfuly:",response)
+
+              #--------------------------------------------------------- END ------------------------------------------------------#
+
+
+
+
+      MemorySize: 128
+      Timeout: 300
+      Environment:
+        Variables:
+          LOG_LEVEL: INFO
+
+
+  MyEventBus:
+    Type: AWS::Events::EventBus
+    Properties:
+      Name: !Sub "Axcess-${SageMakerProjectName}-event-bus"
+  
+  MyEventRule:
+    Type: 'AWS::Events::Rule'
+    Properties:
+      Name: !Sub "Axcess-${SageMakerProjectName}-prod-ccount-rule"   # Provide EventBridge rule name 
+      EventBusName: !Ref MyEventBus  # Reference the newly created EventBus 
+      EventPattern:
+        source:
+          - "sagemaker-lambda-events"
+        detail-type: 
+          - "sagemaker-myDetailType"  
+        
+      State: "ENABLED"  
+      Targets:
+        - Id: "LambdaTarget"
+          Arn: !GetAtt MyLambdaFunction.Arn
+      
+
+Rules: {}
+
+
+
+

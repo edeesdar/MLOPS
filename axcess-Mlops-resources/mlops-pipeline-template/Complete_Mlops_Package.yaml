@@ -46,6 +46,11 @@ Parameters:
     Default: 'https://<your-bucket>.s3.amazonaws.com/service-catalog-product.yaml'
     Description: S3 URL for the Service Catalog Product nested stack template
 
+  StopPipelineTemplateURL:
+    Type: String
+    Default: 'https://<your-bucket>.s3.amazonaws.com/Stop-specific-codepipeline-executions.yaml'
+    Description: S3 URL for the Service Catalog Product nested stack template
+
   SageMakerProjectName:
     Type: String
     Description: Provide name for sagemaker project
@@ -107,6 +112,16 @@ Parameters:
     Type: String
     Default: axcess-devst-sagemaker-bucket-1
 
+  Approveremail:
+    Type: String
+    Description: Email address for approver notifications
+    Default: approver@example.com
+
+  Executoremail:
+    Type: String
+    Description: Email address for executor notifications
+    Default: executor@example.com
+
 
 
 
@@ -144,12 +159,20 @@ Resources:
         SageMakerProjectRepoZipParameter: !Ref ZipUrlGithubRepo
         SageMakerProjectRepoNameBranchParameter: !Ref RepoBranchName
         SageMakerProjectsProjectNameParameter: !Ref MainFolderName
+    
+  StopPipelineStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn: ProductStack
+    Properties:
+      TemplateURL: !Ref StopPipelineTemplateURL
+      Parameters:
+        ProjectName: !Ref SageMakerProjectName
 
 
 
   SageMakerProject:
     Type: AWS::SageMaker::Project
-    DependsOn: ProductStack
+    DependsOn: StopPipelineStack
     Properties:
       ProjectName: !Ref SageMakerProjectName
       ServiceCatalogProvisioningDetails:
@@ -183,6 +206,11 @@ Resources:
             Value: !Ref DeployStackName
           - Key: mls3bucket
             Value: !Ref S3Bucket
+          - Key: ApproverEmail
+            Value: !Ref Approveremail
+          - Key: ExecutorEmail
+            Value: !Ref Executoremail
+          
 
 
 
