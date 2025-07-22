@@ -1,0 +1,11 @@
+xgboost
+pandas
+numpy
+scikit-learn>=1.2.2
+sagemaker-inference
+flask
+sagemaker
+gunicorn
+joblib
+fsspec
+s3fs
