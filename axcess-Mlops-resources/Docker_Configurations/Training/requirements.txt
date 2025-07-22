@@ -1,0 +1,7 @@
+pandas
+scikit-learn>=1.2.2
+sagemaker-training
+sagemaker
+awswrangler
+seaborn
+boto3
