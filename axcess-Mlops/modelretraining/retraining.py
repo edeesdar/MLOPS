@@ -35,8 +35,10 @@ boto_session = boto3.Session(region_name=region)
 sagemaker_session = session.Session(boto_session=boto_session)
 s3_client = boto3.client('s3', region_name=region)
 codepipeline_client = boto3.client('codepipeline', region_name=region)
-role = "arn:aws:iam::317185619046:role/service-role/AmazonSageMaker-ExecutionRole-20240228T142935"
+role = "arn:aws:iam::345594592951:role/service-role/AmazonSageMaker-ExecutionRole-20250325T120134"
 metrics_s3_key = f"{prefix}/metrics_csv/metrics.csv"
+lambda_client = boto3.client('lambda')
+Initial_Lambda_Switch = "mlops_evaluate_and_notify_lambda"
 
 
 
@@ -49,48 +51,13 @@ s3_manifest_path = f"{prefix}/data/config/model_manifest.json"
 manifest_obj = s3_client.get_object(Bucket=ml_s3_bucket, Key=s3_manifest_path)
 model_manifest = json.loads(manifest_obj['Body'].read().decode('utf-8'))
 
-# --- Load Config and Manifest ---
-#def load_s3_json(path):
-#    bucket, key = path.replace("s3://", "").split("/", 1)
-#    obj = s3_client.get_object(Bucket=bucket, Key=key)
-#    return json.loads(obj["Body"].read().decode("utf-8"))
-
-#model_manifest = load_s3_json(manifest_path)
-#config = load_s3_json(config_path)
-
-# --- Validate S3 Path ---
-def validate_s3_path(path):
-    if not path.startswith("s3://"):
-        path = f"{base_s3_path}/{path.lstrip('/')}"
-    bucket, key = path.replace("s3://", "").split("/", 1)
-    s3_client.head_object(Bucket=bucket, Key=key)
-    return path
-
-# --- Validate Paths in Manifest ---
-for model in model_manifest["models"]:
-    model["baseline_s3_path"] = validate_s3_path(model["baseline_s3_path"])
-    model["training_data_path"] = validate_s3_path(model["training_data_path"])
 
 # --- Process Each Model ---
 for model_info in model_manifest["models"]:
     model_name = f"{model_package_group_name_input}-{model_version_input}"
     
     # --- Check Retraining History ---
-    history_key = f"{prefix}/monitoring/history/{model_package_group_name_input}/{model_name}_retraining_history.json"
-    retrain = True
 
-    try:
-        obj = s3_client.get_object(Bucket=ml_s3_bucket, Key=history_key)
-        history = json.loads(obj['Body'].read().decode('utf-8'))
-        last_retraining = datetime.strptime(history["last_retraining"], "%Y-%m-%d %H:%M:%S")
-        min_interval = timedelta(hours=config["retraining_policy"]["minimum_interval_hours"])
-        retrain = (datetime.now() - last_retraining) >= min_interval
-    except s3_client.exceptions.ClientError:
-        pass
-
-    if not retrain:
-        print(f"Skipping retraining for {model_name}: minimum interval not met.")
-        continue
 
     # --- Evaluate Model Quality ---
     monitor = ModelQualityMonitor(
@@ -157,29 +124,33 @@ for model_info in model_manifest["models"]:
 
         #------------------------------------------------------------------------
 
+        # Build event data
+        event_payload = {
+            "detail": {
+                "model_name": model_name,
+                "metrics": {}
+            }
+        }
 
-        thresholds = config["quality_thresholds"][model_info["model_type"].lower()]
-        failures = 0
-        for metric, spec in thresholds.items():
-            actual_value = metrics.get(metric, {}).get("threshold", 0)
-            if spec["comparison"] == "LessThanThreshold" and actual_value > spec["threshold"]:
-                failures += 1
-            elif spec["comparison"] == "GreaterThanThreshold" and actual_value < spec["threshold"]:
-                failures += 1
+        for metric_name in ["mae", "mse", "rmse"]:
+            if metric_name in metrics:
+                threshold_val = metrics[metric_name].get("threshold")
+                event_payload["detail"]["metrics"][metric_name] = { "value": threshold_val }
 
-        if failures > 0:
-            print(f"{model_name} failed quality check. Proceeding with retraining.")
+        print("Prepared event payload:")
+        print(json.dumps(event_payload, indent=2))
 
-            # --- Trigger CodePipeline ---
-            try:
-                training_pipeline_name = model_info["training_pipeline"]
-                cp_response = codepipeline_client.start_pipeline_execution(name=training_pipeline_name)
-                print(f"Triggered CodePipeline: {training_pipeline_name}, Execution ID: {cp_response['pipelineExecutionId']}")
-            except Exception as e:
-                print(f"Failed to trigger CodePipeline: {str(e)}")
-        else:
-            print(f"{model_name} passed quality check. Skipping retraining.")
-            continue
+        # Trigger Lambda
+        
+        response = lambda_client.invoke(
+            FunctionName=Initial_Lambda_Switch,  
+            InvocationType='Event',  
+            Payload=json.dumps(event_payload)
+        )
+        print("Lambda invoked:", response)
+
+
+
 
     except Exception as e:
         print(f"Monitoring failed for {model_name}: {str(e)}.")
@@ -187,16 +158,3 @@ for model_info in model_manifest["models"]:
        
 
     # --- Update Retraining History ---
-    history = {
-        "model_package_group_name":model_package_group_name_input,
-        "model_name": model_name,
-        "last_retraining": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "retraining_count": 1
-    }
-
-    s3_client.put_object(
-        Bucket=ml_s3_bucket,
-        Key=history_key,
-        Body=json.dumps(history).encode("utf-8")
-    )
-    print(f"Retraining history updated for {model_name}.")

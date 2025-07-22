@@ -30,6 +30,7 @@ from sagemaker import image_uris
 import argparse
 import csv
 
+
  
 # Initialize configuration
 region = boto3.Session().region_name
@@ -56,7 +57,7 @@ try:
 except Exception as e:
     print(f"Couldn't get execution role automatically: {str(e)}")
     # Using your provided role ARN
-    role = "arn:aws:iam::317185619046:role/AmazonSageMakerServiceCatalogProductsUseRoleMultiModelTB"
+    role = "arn:aws:iam::345594592951:role/AmazonSageMakerServiceCatalogProductsUseRoleMultiModelTB"
    
 print(f"Using RoleArn: {role}")
  
@@ -89,7 +90,8 @@ print(f"Inference data shape: {inference_data.shape}")
 #print(f"Uploaded inference data to {s3_path}")
 output_file_key = f"{prefix}/batch_output/inference_data.csv.out"
 
-
+time.sleep(120)
+print('sleep time completed')
 
 try:
     # Check for the output file with retries

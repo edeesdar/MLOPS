@@ -1,0 +1,23 @@
+{
+  "quality_thresholds": {
+    "regression": {
+            "mae": {"threshold": 50.0, "comparison": "LessThanThreshold"},
+            "mse": {"threshold": 1500.0, "comparison": "LessThanThreshold"},
+            "rmse": {"threshold": 80.0, "comparison": "LessThanThreshold"}
+    },
+    "binary_classification": {
+      "accuracy": {"threshold": 0.9, "comparison": "GreaterThanThreshold"},
+      "precision": {"threshold": 0.85, "comparison": "GreaterThanThreshold"}
+    }
+  },
+  "retraining_policy": {
+    "consecutive_failures": 3,
+    "minimum_interval_hours": 0.1667,
+    "retraining_config": {
+      "instance_type": "ml.m5.xlarge",
+      "instance_count": 1,
+      "volume_size_gb": 30,
+      "max_runtime_seconds": 3600
+    }
+  }
+}

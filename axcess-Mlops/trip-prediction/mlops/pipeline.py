@@ -85,7 +85,7 @@ def get_pipeline(
     # Parameters
     input_data = ParameterString(
         name="InputData",
-        default_value="s3://xfactrs-devst-sagemaker-2/data/2018_Green_Taxi_Trip_Data.csv"
+        default_value="s3://axcess-devst-sagemaker-bucket-3/taxi-duration/original_raw_data/data.csv"
     )
     
     model_approval_status = ParameterString(
@@ -102,11 +102,12 @@ def get_pipeline(
         name="TrainingInstanceCount",
         default_value=1
     )
-    
+
+    # processing last demo ready success : '345594592951.dkr.ecr.us-east-1.amazonaws.com/processing-repo:10.0
     # Processing Step
     processor = ScriptProcessor(
         command=['python3'],
-        image_uri='317185619046.dkr.ecr.us-east-1.amazonaws.com/processing-repo:4.0',
+        image_uri='345594592951.dkr.ecr.us-east-1.amazonaws.com/processing-repo:13.0',
         role=role,
         instance_count=processing_instance_count,
         instance_type=processing_instance_type,
@@ -161,9 +162,10 @@ def get_pipeline(
         "reg_alpha": 0,
         "reg_lambda": 1
     }
-    
+
+    # training last demo ready success : '345594592951.dkr.ecr.us-east-1.amazonaws.com/training-repo:1.0'
     estimator = Estimator(
-        image_uri='317185619046.dkr.ecr.us-east-1.amazonaws.com/training-repo:5.0',
+        image_uri='345594592951.dkr.ecr.us-east-1.amazonaws.com/training-repo:8.0',
         entry_point="train.py",
         source_dir=BASE_DIR,
         role=role,

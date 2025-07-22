@@ -75,7 +75,67 @@ Resources:
     Condition: CreateNewBucket
     DeletionPolicy: Retain
     Properties:
-      BucketName: 'axcess-devst-sagemaker-bucket-2' # Provide S3 bucket name based on your requirment
+      BucketName: !Ref mls3bucket # Provide S3 bucket name based on your requirment
+
+  
+  LambdaExecutionRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      RoleName: !Sub 'LambdaExecutionRole-crossaccount'  # Provide Lambda Execution Role name based on your requirment which used to trigger Eventbridge rule for crossacount deployment.
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: LambdaExecutionPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: arn:aws:logs:*:*:*
+        - PolicyName: AmazonEventBridgeFullAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'events:*'
+                Resource: '*'
+        - PolicyName: SageMakerServiceCatalogProductsPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'sagemaker:*'
+                Resource: '*'
+        - PolicyName: CodePipelineFullAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'codepipeline:*'
+                Resource: '*'
+        - PolicyName: S3FullAccessPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 's3:*'
+                Resource: '*'
+
+  
+
+  
 
   SageMakerModelPipelineBuildProject:
     Type: 'AWS::CodeBuild::Project'
@@ -271,60 +331,29 @@ Resources:
         BuildSpec: axcess-Mlops/modelmonitoring/buildspec.yml
       TimeoutInMinutes: 480
 
-  LambdaExecutionRole:
-    Type: 'AWS::IAM::Role'
+  SageMakerModelretrainingProject:
+    Type: 'AWS::CodeBuild::Project'
     Properties:
-      RoleName: !Sub 'LambdaExecutionRole-crossaccount'  # Provide Lambda Execution Role name based on your requirment which used to trigger Eventbridge rule for crossacount deployment.
-      AssumeRolePolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: lambda.amazonaws.com
-            Action: sts:AssumeRole
-      Policies:
-        - PolicyName: LambdaExecutionPolicy
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Effect: Allow
-                Action:
-                  - logs:CreateLogGroup
-                  - logs:CreateLogStream
-                  - logs:PutLogEvents
-                Resource: arn:aws:logs:*:*:*
-        - PolicyName: AmazonEventBridgeFullAccess
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Effect: Allow
-                Action:
-                  - 'events:*'
-                Resource: '*'
-        - PolicyName: SageMakerServiceCatalogProductsPolicy
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Effect: Allow
-                Action:
-                  - 'sagemaker:*'
-                Resource: '*'
-        - PolicyName: CodePipelineFullAccess
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Effect: Allow
-                Action:
-                  - 'codepipeline:*'
-                Resource: '*'
-        - PolicyName: S3FullAccessPolicy
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Effect: Allow
-                Action:
-                  - 's3:*'
-                Resource: '*'
+      Name: 'sagemaker-model-retraining-project'
+      Description: "model retraining"
+      ServiceRole: !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/AmazonSageMakerServiceCatalogProductsUseRoleMultiModelTB
+      Artifacts:
+        Type: CODEPIPELINE
+      Environment:
+        Type: LINUX_CONTAINER
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: 'aws/codebuild/amazonlinux2-x86_64-standard:5.0'
+        EnvironmentVariables:
+          - Name: AWS_REGION
+            Value: !Ref 'AWS::Region'
+          
+
+      Source:
+        Type: CODEPIPELINE
+        BuildSpec: axcess-Mlops/modelretraining/buildspec.yml
+      TimeoutInMinutes: 480
+
+  
 
   MyLambdaFunction:
     Type: 'AWS::Lambda::Function'
@@ -392,7 +421,7 @@ Resources:
     Type: 'AWS::CodePipeline::Pipeline'
     DependsOn: MlOpsArtifactsBucket
     Properties:
-      Name: !Sub 'sagemaker-${SageMakerProjectName}-${SageMakerProjectId}-modelbuild'  # Provide name for ModelBuild codepipeline pipeline
+      Name: !Sub 'sagemaker-${SageMakerProjectName}-modelbuild'  # Provide name for ModelBuild codepipeline pipeline
       RoleArn: !Join
         - ':'
         - - arn
@@ -468,7 +497,7 @@ Resources:
     Type: 'AWS::CodePipeline::Pipeline'
     DependsOn: MlOpsArtifactsBucket
     Properties:
-      Name: !Sub 'sagemaker-${SageMakerProjectName}-${SageMakerProjectId}-modeldeploy'  # Provide name for ModelDeploy codepipeline pipeline
+      Name: !Sub 'sagemaker-${SageMakerProjectName}-modeldeploy'  # Provide name for ModelDeploy codepipeline pipeline
       RoleArn: !Join
         - ':'
         - - arn
@@ -634,6 +663,31 @@ Resources:
                   ]
               RunOrder: 1
 
+        - Name: SageMakerModelretraining
+          Actions:
+            - Name: ModelRetrainingStage
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Provider: CodeBuild
+                Version: 1
+              InputArtifacts:
+                - Name: SourceArtifact
+              OutputArtifacts:
+                - Name: RetrainingArtifact
+              Configuration:
+                ProjectName: !Ref SageMakerModelretrainingProject
+                EnvironmentVariables: !Sub |
+                  [
+                    {"name": "use_case", "value": "#{variables.use_case}"},
+                    {"name": "ml_s3_bucket", "value": "#{variables.ml_s3_bucket}"},
+                    {"name": "s3_prefix", "value": "#{variables.s3_prefix}"},
+                    {"name": "model_package_group_name_input", "value": "#{variables.model_package_group_name_input}"},
+                    {"name": "model_version_input", "value": "#{variables.model_version_input}"},
+                    {"name": "StackName", "value": "#{variables.StackName}"}
+                  ]
+              RunOrder: 1
+
         - Name: ApproveDeployment
           Actions:
             - Name: ManualApproval
@@ -668,18 +722,10 @@ Resources:
         source:
           - "sagemaker-lambda-events"
       State: "ENABLED"  
+
+  
   
   
       
 
 Rules: {}
-
-
-
-
-
-
-
-
-
-

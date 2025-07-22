@@ -204,10 +204,12 @@ def main():
     log_format = "%(levelname)s: [%(filename)s:%(lineno)s] %(message)s"
     logging.basicConfig(format=log_format, level=args.log_level)
 
+    # processing last demo ready success : '345594592951.dkr.ecr.us-east-1.amazonaws.com/inference-repo:1.0'
+    
     model_names = []
     pipeline_definitions = []
     container_definitions = []
-    inference_image_uri = '317185619046.dkr.ecr.us-east-1.amazonaws.com/inference-repo:41.0'
+    inference_image_uri = '345594592951.dkr.ecr.us-east-1.amazonaws.com/inference-repo:20.0'
     parsed_kwargs = json.loads(args.kwargs)
     model_package_group_name = args.model_package_group_name
     default_bucket = args.default_bucket
@@ -233,10 +235,10 @@ def main():
     else:
         #input_path = f"s3://{default_bucket}/{use_case}/data/test/input"
         #input_path = "s3://axcess-devst-sagemaker-bucket/taxi-duration/test"
-        input_path = "s3://axcess-devst-sagemaker-bucket/taxi-duration/batch_input"
+        input_path = f"s3://{default_bucket}/taxi-duration/batch_input"
         #output_path = "s3://axcess-devst-sagemaker-bucket/taxi-duration/test/data/output/"
         #input_path = "s3://axcess-devst-sagemaker-bucket/taxi-duration/batch_input/inference_data.csv"
-        output_path = "s3://axcess-devst-sagemaker-bucket/taxi-duration/batch_output/"
+        output_path = f"s3://{default_bucket}/taxi-duration/batch_output/"
 
 
     # for model_package_group_name in args.model_package_group_names.split(","):
