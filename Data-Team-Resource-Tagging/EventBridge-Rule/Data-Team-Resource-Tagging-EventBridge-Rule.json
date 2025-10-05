@@ -1,0 +1,10 @@
+{
+  "source": ["aws.events", "aws.iam", "aws.s3", "aws.ec2", "aws.sagemaker", "aws.glue", "aws.rds", "aws.lambda", "aws.kafka", "aws.servicecatalog", "aws.dms", "aws.codepipeline"],
+  "detail-type": ["AWS API Call via CloudTrail"],
+  "detail": {
+    "eventName": ["CreateEventBus", "CreateRule", "CreateRole", "CreatePolicy", "CreateBucket", "CreateVpc", "CreateSubnet", "RunInstances", "CreateImage", "CreateVolume", "CreateDomain", "CreateUserProfile", "CreateModel", "CreateJob", "CreateDatabase", "CreateTable", "CreateCrawler", "CreateDBInstance", "CreateDBSnapshot", "CreateFunction20150331", "CreateCluster", "CreatePortfolio", "CreateProduct", "CreateReplicationInstance", "CreateEndpoint", "CreateReplicationTask", "CreatePipeline"],
+    "userIdentity": {
+      "arn": ["arn:aws:sts::345594592951:assumed-role/AWSReservedSSO_AWSAdministratorAccess_834ce3a515a6f00d/manoj.patil@axcess.io"]
+    }
+  }
+}
