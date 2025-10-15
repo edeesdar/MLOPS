@@ -15,7 +15,7 @@ PROCESSING_PATH = os.path.join(BASE_PATH, "processing")
 PROCESSING_PATH_INPUT = os.path.join(PROCESSING_PATH, "input")
 PROCESSING_PATH_OUTPUT = os.path.join(PROCESSING_PATH, "output")
  
-s3_bucket = "axcess-devst-sagemaker-bucket-13"
+s3_bucket = "mlops-workshop-edees-nasrullah-dar"
 input_s3_key = "taxi-duration/original_raw_data/data.csv"
 prefix = "taxi-duration"
  
@@ -105,3 +105,4 @@ if __name__ == '__main__':
     load_data(train_data, os.path.join(PROCESSING_PATH_OUTPUT, "train"), "train", header=False)
     load_data(validation_data, os.path.join(PROCESSING_PATH_OUTPUT, "validation"), "validation", header=False)
     load_data(X_test, os.path.join(PROCESSING_PATH_OUTPUT, "inference"), "data", header=True)
+
