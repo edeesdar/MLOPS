@@ -85,7 +85,7 @@ def get_pipeline(
     # Parameters
     input_data = ParameterString(
         name="InputData",
-        default_value="s3://axcess-devst-sagemaker-bucket-3/taxi-duration/original_raw_data/data.csv"
+        default_value="s3://mlops-workshop-edees-nasrullah-dar/taxi-duration/original_raw_data/data.csv"
     )
     
     model_approval_status = ParameterString(
@@ -107,7 +107,7 @@ def get_pipeline(
     # Processing Step
     processor = ScriptProcessor(
         command=['python3'],
-        image_uri='345594592951.dkr.ecr.us-east-1.amazonaws.com/processing-repo:13.0',
+        image_uri='361769565206.dkr.ecr.us-east-1.amazonaws.com/processing-repo',
         role=role,
         instance_count=processing_instance_count,
         instance_type=processing_instance_type,
@@ -165,7 +165,7 @@ def get_pipeline(
 
     # training last demo ready success : '345594592951.dkr.ecr.us-east-1.amazonaws.com/training-repo:1.0'
     estimator = Estimator(
-        image_uri='345594592951.dkr.ecr.us-east-1.amazonaws.com/training-repo:8.0',
+        image_uri='361769565206.dkr.ecr.us-east-1.amazonaws.com/training-repo',
         entry_point="train.py",
         source_dir=BASE_DIR,
         role=role,
@@ -218,3 +218,4 @@ def get_pipeline(
     )
     
     return pipeline
+
