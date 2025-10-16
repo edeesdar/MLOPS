@@ -35,7 +35,7 @@ boto_session = boto3.Session(region_name=region)
 sagemaker_session = session.Session(boto_session=boto_session)
 s3_client = boto3.client('s3', region_name=region)
 codepipeline_client = boto3.client('codepipeline', region_name=region)
-role = "arn:aws:iam::345594592951:role/service-role/AmazonSageMaker-ExecutionRole-20250325T120134"
+role = "arn:aws:iam::361769565206:role/service-role/AmazonSageMaker-ExecutionRole-20250425T101514"
 metrics_s3_key = f"{prefix}/metrics_csv/metrics.csv"
 lambda_client = boto3.client('lambda')
 Initial_Lambda_Switch = "mlops_evaluate_and_notify_lambda"
