@@ -89,8 +89,8 @@ def get_pipeline(
     input_path = ParameterString("InputPath")
     output_path = ParameterString("OutputPath")
 
-    input_path_new = "s3://axcess-devst-sagemaker-bucket/taxi-duration/batch_input/inference_data.csv" 
-    output_path_new = "s3://axcess-devst-sagemaker-bucket/taxi-duration/batch_output/inference_data.csv.out"
+    input_path_new = "s3://mlops-workshop-edees-nasrullah-dar/taxi-duration/batch_input/inference_data.csv" 
+    output_path_new = "s3://mlops-workshop-edees-nasrullah-dar/taxi-duration/batch_output/inference_data.csv.out"
     
 
     #input_path = "s3://axcess-devst-sagemaker-bucket/taxi-duration/batch_input/"
@@ -129,3 +129,4 @@ def get_pipeline(
     )
     
     return pipeline
+
