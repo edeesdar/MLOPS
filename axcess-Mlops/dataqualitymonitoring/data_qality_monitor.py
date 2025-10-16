@@ -32,7 +32,7 @@ def initialize_resources():
     try:
         region = boto3.Session().region_name or 'us-east-1'
         sagemaker_session = get_sagemaker_session(region)
-        role = "arn:aws:iam::345594592951:role/AmazonSageMakerServiceCatalogProductsUseRoleMultiModelTB"
+        role = "arn:aws:iam::361769565206:role/AmazonSageMakerServiceCatalogProductsUseRoleMultiModelTB"
         print(f"Using IAM role: {role}")
         return sagemaker_session, region, None, role
     except Exception as e:
